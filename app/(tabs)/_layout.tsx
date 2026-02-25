@@ -1,57 +1,72 @@
-import React from 'react';
-import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { Link, Tabs } from 'expo-router';
-import { Pressable } from 'react-native';
-
-import Colors from '@/constants/Colors';
-import { useColorScheme } from '@/components/useColorScheme';
-import { useClientOnlyValue } from '@/components/useClientOnlyValue';
-
-// You can explore the built-in icon families and icons on the web at https://icons.expo.fyi/
-function TabBarIcon(props: {
-  name: React.ComponentProps<typeof FontAwesome>['name'];
-  color: string;
-}) {
-  return <FontAwesome size={28} style={{ marginBottom: -3 }} {...props} />;
-}
+import { Tabs } from 'expo-router';
+import { Home, Sparkles, Shirt, Bookmark, Settings } from 'lucide-react-native';
+import { useApp } from '@/contexts/AppContext';
+import { palette, radius } from '@/constants/theme';
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
+  const { themeColors } = useApp();
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        // Disable the static render of the header on web
-        // to prevent a hydration error in React Navigation v6.
-        headerShown: useClientOnlyValue(false, true),
-      }}>
+        headerShown: false,
+        tabBarActiveTintColor: themeColors.primary,
+        tabBarInactiveTintColor: palette.inkFaint,
+        tabBarStyle: {
+          backgroundColor: palette.white,
+          borderTopWidth: 0,
+          paddingTop: 8,
+          paddingBottom: 8,
+          height: 64,
+          shadowColor: '#8B7E74',
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: 0.06,
+          shadowRadius: 12,
+          elevation: 8,
+        },
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '500',
+          marginTop: 2,
+        },
+        tabBarIconStyle: {
+          marginBottom: -2,
+        },
+      }}
+    >
       <Tabs.Screen
-        name="index"
+        name="home"
         options={{
-          title: 'Tab One',
-          tabBarIcon: ({ color }) => <TabBarIcon name="code" color={color} />,
-          headerRight: () => (
-            <Link href="/modal" asChild>
-              <Pressable>
-                {({ pressed }) => (
-                  <FontAwesome
-                    name="info-circle"
-                    size={25}
-                    color={Colors[colorScheme ?? 'light'].text}
-                    style={{ marginRight: 15, opacity: pressed ? 0.5 : 1 }}
-                  />
-                )}
-              </Pressable>
-            </Link>
-          ),
+          title: 'Home',
+          tabBarIcon: ({ color }) => <Home size={22} color={color} strokeWidth={1.8} />,
         }}
       />
       <Tabs.Screen
-        name="two"
+        name="inspiration"
         options={{
-          title: 'Tab Two',
-          tabBarIcon: ({ color }) => <TabBarIcon name="code" color={color} />,
+          title: 'Inspire',
+          tabBarIcon: ({ color }) => <Sparkles size={22} color={color} strokeWidth={1.8} />,
+        }}
+      />
+      <Tabs.Screen
+        name="closet"
+        options={{
+          title: 'Closet',
+          tabBarIcon: ({ color }) => <Shirt size={22} color={color} strokeWidth={1.8} />,
+        }}
+      />
+      <Tabs.Screen
+        name="saved"
+        options={{
+          title: 'Saved',
+          tabBarIcon: ({ color }) => <Bookmark size={22} color={color} strokeWidth={1.8} />,
+        }}
+      />
+      <Tabs.Screen
+        name="settings"
+        options={{
+          title: 'Settings',
+          tabBarIcon: ({ color }) => <Settings size={22} color={color} strokeWidth={1.8} />,
         }}
       />
     </Tabs>
