@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -29,6 +29,7 @@ import { IconButton } from '@/components/IconButton';
 import { useApp } from '@/contexts/AppContext';
 import { ClosetItem, ClothingCategory, ProcessingStep } from '@/types';
 import { retryProcessing } from '@/lib/processingQueue';
+import { durations, easings, stagger, useReduceMotion, withSoftSpring } from '@/lib/motion';
 
 const { width } = Dimensions.get('window');
 const GAP = 16;
@@ -96,16 +97,200 @@ function FilterChip({ label, selected, onPress }: { label: string; selected: boo
   );
 }
 
+function ClosetTile({
+  item,
+  isSelected,
+  isPending,
+  isFailed,
+  isDone,
+  imageSource,
+  isNew,
+  stepLabel,
+  onPress,
+  onDelete,
+  onRetry,
+  index,
+  animateEntrance,
+}: {
+  item: ClosetItem;
+  isSelected: boolean;
+  isPending: boolean;
+  isFailed: boolean;
+  isDone: boolean;
+  imageSource: string;
+  isNew: boolean;
+  stepLabel: string;
+  onPress: () => void;
+  onDelete: () => void;
+  onRetry: () => void;
+  index: number;
+  animateEntrance: boolean;
+}) {
+  const reduceMotion = useReduceMotion();
+  const readyOpacity = useRef(new Animated.Value(1)).current;
+  const readyScale = useRef(new Animated.Value(1)).current;
+  const readyY = useRef(new Animated.Value(0)).current;
+  const entranceOpacity = useRef(new Animated.Value(animateEntrance && !reduceMotion ? 0 : 1)).current;
+  const entranceScale = useRef(new Animated.Value(animateEntrance && !reduceMotion ? 0.96 : 1)).current;
+  const entranceY = useRef(new Animated.Value(animateEntrance && !reduceMotion ? 10 : 0)).current;
+  const prevPendingRef = useRef(isPending);
+
+  useEffect(() => {
+    const becameReady = prevPendingRef.current && !isPending && !!item.stickerPngUri;
+    if (becameReady && !reduceMotion) {
+      readyOpacity.setValue(0);
+      readyScale.setValue(0.96);
+      readyY.setValue(-6);
+      Animated.parallel([
+        Animated.timing(readyOpacity, {
+          toValue: 1,
+          duration: durations.normal,
+          easing: easings.outCubic,
+          useNativeDriver: true,
+        }),
+        Animated.timing(readyY, {
+          toValue: 0,
+          duration: durations.normal,
+          easing: easings.outCubic,
+          useNativeDriver: true,
+        }),
+        Animated.spring(readyScale, withSoftSpring(1)),
+      ]).start();
+    }
+    prevPendingRef.current = isPending;
+  }, [isPending, item.stickerPngUri, readyOpacity, readyScale, readyY, reduceMotion]);
+
+  useEffect(() => {
+    if (!animateEntrance || reduceMotion) return;
+    Animated.parallel([
+      Animated.timing(entranceOpacity, {
+        toValue: 1,
+        delay: stagger(index),
+        duration: durations.normal,
+        easing: easings.outCubic,
+        useNativeDriver: true,
+      }),
+      Animated.timing(entranceScale, {
+        toValue: 1,
+        delay: stagger(index),
+        duration: durations.normal,
+        easing: easings.outCubic,
+        useNativeDriver: true,
+      }),
+      Animated.timing(entranceY, {
+        toValue: 0,
+        delay: stagger(index),
+        duration: durations.normal,
+        easing: easings.outCubic,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [animateEntrance, entranceOpacity, entranceScale, entranceY, index, reduceMotion]);
+
+  return (
+    <View style={styles.gridCell}>
+      <Animated.View
+        style={{
+          opacity: Animated.multiply(readyOpacity, entranceOpacity),
+          transform: [
+            {
+              translateY: Animated.add(readyY, entranceY),
+            },
+            {
+              scale: Animated.multiply(readyScale, entranceScale),
+            },
+          ],
+        }}
+      >
+        <TouchableOpacity
+          style={[
+            styles.itemCard,
+            isDone && styles.itemCardTransparent,
+          ]}
+          onPress={onPress}
+          onLongPress={onDelete}
+          activeOpacity={0.9}
+        >
+          <Image
+            source={{ uri: imageSource }}
+            style={styles.itemImage}
+            contentFit="contain"
+          />
+
+          {isPending && (
+            <View style={styles.processingOverlay}>
+              <ActivityIndicator size="small" color="#FFF" />
+              <Text style={styles.processingText}>{stepLabel}</Text>
+            </View>
+          )}
+
+          {isFailed && (
+            <View style={styles.failedOverlay}>
+              <Text style={styles.failedText}>Failed</Text>
+              <TouchableOpacity
+                style={styles.retryBtn}
+                onPress={onRetry}
+              >
+                <RotateCcw size={14} color="#FFF" />
+                <Text style={styles.retryBtnText}>Retry</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.removeLink}
+                onPress={onDelete}
+              >
+                <Text style={styles.removeLinkText}>Remove</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {isNew && (
+            <View style={styles.newBadge}>
+              <Text style={styles.newBadgeText}>New</Text>
+            </View>
+          )}
+
+          {isSelected && !isPending && !isFailed && (
+            <TouchableOpacity style={styles.deleteBtn} onPress={onDelete}>
+              <X size={14} color="#FFF" />
+            </TouchableOpacity>
+          )}
+        </TouchableOpacity>
+      </Animated.View>
+    </View>
+  );
+}
+
 export default function ClosetScreen() {
   const router = useRouter();
   const { closetItems, removeClosetItem } = useApp();
   const [selectedFilter, setSelectedFilter] = useState('All');
   const [selectedItem, setSelectedItem] = useState<ClosetItem | null>(null);
+  const [animateEntrance, setAnimateEntrance] = useState(true);
+  const hasAnimatedOnceRef = useRef(false);
 
   const filteredItems = useMemo(() => {
     if (selectedFilter === 'All') return closetItems;
     return closetItems.filter((item) => getCategoryGroup(item.category) === selectedFilter);
   }, [selectedFilter, closetItems]);
+
+  useEffect(() => {
+    setAnimateEntrance(true);
+    const timeout = setTimeout(() => {
+      setAnimateEntrance(false);
+      hasAnimatedOnceRef.current = true;
+    }, 260);
+    return () => clearTimeout(timeout);
+  }, [selectedFilter]);
+
+  useEffect(() => {
+    if (!hasAnimatedOnceRef.current && filteredItems.length > 0) {
+      const timeout = setTimeout(() => {
+        setAnimateEntrance(false);
+        hasAnimatedOnceRef.current = true;
+      }, 360);
+      return () => clearTimeout(timeout);
+    }
+  }, [filteredItems.length]);
 
   const handleDelete = useCallback(
     (item: ClosetItem) => {
@@ -156,75 +341,35 @@ export default function ClosetScreen() {
   );
 
   const renderItem = useCallback(
-    ({ item }: { item: ClosetItem }) => {
+    ({ item, index }: { item: ClosetItem; index: number }) => {
       const isSelected = selectedItem?.id === item.id;
       const status = item.processingStatus;
       const isPending = status === 'queued' || status === 'processing';
       const isFailed = status === 'failed';
-      const isDone = status === 'done' || (!status && item.stickerPngUri);
+      const isDone = status === 'done' || (!status && !!item.stickerPngUri);
       const imageSource = item.stickerPngUri || item.imageUri;
       const isNew = isNewItem(item.createdAt) && !isPending && !isFailed;
       const stepLabel = item.processingStep ? STEP_LABELS[item.processingStep] : (status === 'queued' ? 'Queued…' : 'Processing…');
 
       return (
-        <View style={styles.gridCell}>
-          <TouchableOpacity
-            style={[
-              styles.itemCard,
-              isDone && styles.itemCardTransparent,
-            ]}
-            onPress={() => handleItemPress(item)}
-            onLongPress={() => handleDelete(item)}
-            activeOpacity={0.9}
-          >
-            <Image
-              source={{ uri: imageSource }}
-              style={styles.itemImage}
-              contentFit="contain"
-            />
-
-            {isPending && (
-              <View style={styles.processingOverlay}>
-                <ActivityIndicator size="small" color="#FFF" />
-                <Text style={styles.processingText}>{stepLabel}</Text>
-              </View>
-            )}
-
-            {isFailed && (
-              <View style={styles.failedOverlay}>
-                <Text style={styles.failedText}>Failed</Text>
-                <TouchableOpacity
-                  style={styles.retryBtn}
-                  onPress={() => handleRetry(item)}
-                >
-                  <RotateCcw size={14} color="#FFF" />
-                  <Text style={styles.retryBtnText}>Retry</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.removeLink}
-                  onPress={() => handleDelete(item)}
-                >
-                  <Text style={styles.removeLinkText}>Remove</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {isNew && (
-              <View style={styles.newBadge}>
-                <Text style={styles.newBadgeText}>New</Text>
-              </View>
-            )}
-
-            {isSelected && !isPending && !isFailed && (
-              <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDelete(item)}>
-                <X size={14} color="#FFF" />
-              </TouchableOpacity>
-            )}
-          </TouchableOpacity>
-        </View>
+        <ClosetTile
+          item={item}
+          isSelected={isSelected}
+          isPending={isPending}
+          isFailed={isFailed}
+          isDone={isDone}
+          imageSource={imageSource}
+          isNew={isNew}
+          stepLabel={stepLabel}
+          onPress={() => handleItemPress(item)}
+          onDelete={() => handleDelete(item)}
+          onRetry={() => handleRetry(item)}
+          index={index}
+          animateEntrance={animateEntrance}
+        />
       );
     },
-    [selectedItem, handleItemPress, handleDelete, handleRetry]
+    [animateEntrance, handleDelete, handleItemPress, handleRetry, selectedItem]
   );
 
   const headerRight = (

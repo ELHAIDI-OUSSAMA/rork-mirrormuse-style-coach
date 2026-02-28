@@ -33,19 +33,22 @@ import {
   PlannedOutfit,
   WeatherSnapshot,
 } from '@/types';
-import { generatePlannedOutfit, getMockWeather } from '@/utils/mockAnalysis';
+import { generatePlannedOutfit } from '@/utils/mockAnalysis';
+import { getLiveWeatherForDate } from '@/utils/weather';
 
 type Step = 'occasion' | 'date' | 'weather' | 'generating' | 'result';
 
 export default function PlanOutfitScreen() {
   const router = useRouter();
-  const { preferences, themeColors, closetItems, addPlannedOutfit } = useApp();
+  const { preferences, themeColors, closetItems, addPlannedOutfit, currentWeather } = useApp();
   
   const [step, setStep] = useState<Step>('occasion');
   const [selectedOccasion, setSelectedOccasion] = useState<PlanningOccasion>('Casual');
   const [customOccasion, setCustomOccasion] = useState('');
   const [selectedDate, setSelectedDate] = useState<'today' | 'tomorrow' | 'custom'>('today');
   const [weather, setWeather] = useState<WeatherSnapshot | null>(null);
+  const [isWeatherLoading, setIsWeatherLoading] = useState(false);
+  const [weatherError, setWeatherError] = useState<string | null>(null);
   const [plannedOutfit, setPlannedOutfit] = useState<PlannedOutfit | null>(null);
   const [isSaved, setIsSaved] = useState(false);
 
@@ -53,16 +56,41 @@ export default function PlanOutfitScreen() {
     ? ['#FAFAFA', '#F0F0F0'] as const
     : ['#FDF8F6', '#F5EDE8'] as const;
 
+  const getTargetDateString = useCallback(() => {
+    if (selectedDate === 'tomorrow') {
+      return new Date(Date.now() + 86400000).toISOString().split('T')[0];
+    }
+    return new Date().toISOString().split('T')[0];
+  }, [selectedDate]);
+
+  const loadWeatherForSelectedDate = useCallback(async () => {
+    const dateStr = getTargetDateString();
+    setIsWeatherLoading(true);
+    setWeatherError(null);
+
+    if (currentWeather && currentWeather.date === dateStr) {
+      setWeather(currentWeather);
+      setIsWeatherLoading(false);
+      return;
+    }
+
+    try {
+      const liveWeather = await getLiveWeatherForDate(dateStr);
+      setWeather(liveWeather);
+    } catch (error) {
+      console.log('[PlanOutfit] Weather fetch failed:', error);
+      setWeather(null);
+      setWeatherError('Could not fetch live weather. You can continue without weather.');
+    } finally {
+      setIsWeatherLoading(false);
+    }
+  }, [currentWeather, getTargetDateString]);
+
   useEffect(() => {
     if (step === 'weather') {
-      const dateStr = selectedDate === 'today' 
-        ? new Date().toISOString().split('T')[0]
-        : selectedDate === 'tomorrow'
-          ? new Date(Date.now() + 86400000).toISOString().split('T')[0]
-          : new Date().toISOString().split('T')[0];
-      setWeather(getMockWeather(dateStr));
+      loadWeatherForSelectedDate();
     }
-  }, [step, selectedDate]);
+  }, [step, selectedDate, loadWeatherForSelectedDate]);
 
   useEffect(() => {
     if (step === 'generating') {
@@ -275,6 +303,7 @@ export default function PlanOutfitScreen() {
               </Text>
               <Text style={[styles.weatherCondition, { color: themeColors.textSecondary }]}>
                 {weather.condition.charAt(0).toUpperCase() + weather.condition.slice(1)}
+                {weather.location ? ` • ${weather.location}` : ''}
               </Text>
             </View>
           </View>
@@ -288,6 +317,33 @@ export default function PlanOutfitScreen() {
         </Card>
       )}
 
+      {isWeatherLoading && (
+        <Card style={[styles.weatherCard, { backgroundColor: themeColors.card }]}>
+          <View style={styles.weatherLoading}>
+            <ActivityIndicator size="small" color={themeColors.primary} />
+            <Text style={[styles.weatherLoadingText, { color: themeColors.textSecondary }]}>
+              Fetching live forecast...
+            </Text>
+          </View>
+        </Card>
+      )}
+
+      {!isWeatherLoading && weatherError && (
+        <Card style={[styles.weatherCard, { backgroundColor: themeColors.card }]}>
+          <Text style={[styles.weatherErrorText, { color: themeColors.error }]}>
+            {weatherError}
+          </Text>
+          <Button
+            title="Retry Weather"
+            onPress={loadWeatherForSelectedDate}
+            variant="outline"
+            size="small"
+            icon={<RefreshCw size={16} color={themeColors.primary} />}
+            style={styles.retryWeatherBtn}
+          />
+        </Card>
+      )}
+
       <Button
         title="Generate Outfit"
         onPress={handleNext}
@@ -295,6 +351,7 @@ export default function PlanOutfitScreen() {
         size="large"
         icon={<Sparkles size={20} color={themeColors.textInverse} />}
         style={styles.nextBtn}
+        disabled={isWeatherLoading}
       />
     </View>
   );
@@ -555,6 +612,23 @@ const styles = StyleSheet.create({
   },
   weatherCondition: {
     fontSize: 16,
+  },
+  weatherLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  weatherLoadingText: {
+    fontSize: 14,
+    fontWeight: '500' as const,
+  },
+  weatherErrorText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  retryWeatherBtn: {
+    marginTop: 12,
+    alignSelf: 'flex-start',
   },
   rainBadge: {
     marginTop: 16,

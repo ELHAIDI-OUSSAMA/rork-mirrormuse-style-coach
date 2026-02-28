@@ -1,495 +1,647 @@
-import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
   ActivityIndicator,
-  RefreshControl,
-  Dimensions,
-  Animated,
+  Modal,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
-import { Search, Bookmark, BookmarkCheck } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { useRouter } from 'expo-router';
+import * as Linking from 'expo-linking';
+import { Bookmark, BookmarkCheck, Minus, Plus, SlidersHorizontal } from 'lucide-react-native';
+import { palette, radius, shadow, space, type as typo } from '@/constants/theme';
+import { PressableScale } from '@/components/PressableScale';
+import { Toast } from '@/components/Toast';
+import { InspireSwipeDeck, InspireSwipeDeckHandle } from '@/components/InspireSwipeDeck';
+import { InspireWalkthrough } from '@/components/InspireWalkthrough';
+import { fetchInspiration, prefetchInspirationImages } from '@/lib/inspirationFeed';
 import { useApp } from '@/contexts/AppContext';
-import { InspirationItem } from '@/types';
-import { fetchInspirationFeed, getInspirationChips } from '@/lib/inspirationProvider';
-import { space, radius, palette, type as typo, CHIP_HEIGHT, motion } from '@/constants/theme';
-import { AppHeader } from '@/components/AppHeader';
+import { InspirationCard, SwipeAction } from '@/types/inspiration';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const NUM_COLUMNS = 2;
-const GAP = 10;
-const COLUMN_WIDTH = (SCREEN_WIDTH - space.screen * 2 - GAP) / NUM_COLUMNS;
+const WALKTHROUGH_KEY = 'mirrormuse_inspire_walkthrough_seen_v1';
+const BUFFER_TARGET = 12;
+const BUFFER_LOW_WATERMARK = 6;
+
+function whyThisWorks(card: InspirationCard) {
+  const tag = card.tags?.[0] || 'Balanced styling';
+  const occasion = card.occasion || 'Daily wear';
+  return `${tag} lines, clean proportions, and a wearable palette make this a strong ${occasion.toLowerCase()} reference.`;
+}
+
+function keyPieces(card: InspirationCard) {
+  const base = card.tags?.[0]?.toLowerCase();
+  if (base?.includes('street')) return ['Overshirt', 'Relaxed trousers', 'Low-profile sneakers'];
+  if (base?.includes('formal') || base?.includes('work')) return ['Structured layer', 'Straight pants', 'Leather shoes'];
+  if (base?.includes('gym') || base?.includes('athleisure')) return ['Technical top', 'Clean joggers', 'Sport sneakers'];
+  return ['Top layer', 'Balanced bottom', 'Neutral shoes'];
+}
 
 export default function InspirationScreen() {
-  const router = useRouter();
-  const { preferences, isInspirationItemSaved, saveInspirationItem } = useApp();
+  const {
+    preferences,
+    inspirationGender,
+    inspirationQueue,
+    inspirationCalibration,
+    inspirationTagWeights,
+    setInspirationGenderPreference,
+    setInspirationFeedQueue,
+    appendInspirationFeedQueue,
+    recordInspirationSwipe,
+    toggleInspirationSaved,
+    isInspirationCardSaved,
+    closetItems,
+  } = useApp();
 
-  const isMale = preferences.gender === 'male';
-  const gender = isMale ? 'men' : 'women';
-  const chips = useMemo(() => getInspirationChips(gender as any), [gender]);
-
-  const [items, setItems] = useState<InspirationItem[]>([]);
-  const [page, setPage] = useState(1);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [selectedChip, setSelectedChip] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(true);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
+  const [selectedCard, setSelectedCard] = useState<InspirationCard | null>(null);
+  const [showWalkthrough, setShowWalkthrough] = useState(false);
+  const [toast, setToast] = useState<{ visible: boolean; message: string; tone: 'info' | 'success' | 'warning' }>({
+    visible: false,
+    message: '',
+    tone: 'info',
+  });
 
-  const fetchFeed = useCallback(async (
-    pageNum: number,
-    chip: string | null,
-    append: boolean = false,
-  ) => {
-    if (!append) setIsLoading(true);
-    else setIsLoadingMore(true);
+  const deckRef = useRef<InspireSwipeDeckHandle>(null);
+  const calibrationRef = useRef(inspirationCalibration.progress);
+  const fetchingRef = useRef(false);
+  const fetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const profileGender = useMemo<'men' | 'women' | null>(() => {
+    if (preferences.gender === 'male') return 'men';
+    if (preferences.gender === 'female') return 'women';
+    return null;
+  }, [preferences.gender]);
+
+  const effectiveGender = profileGender ?? inspirationGender;
+  const shouldShowSegmented = profileGender === null;
+  const activeCard = inspirationQueue[activeIndex];
+
+  const preferenceQuery = useMemo(() => {
+    return Object.entries(inspirationTagWeights)
+      .filter(([, value]) => value > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 2)
+      .map(([tag]) => tag)
+      .join(' ');
+  }, [inspirationTagWeights]);
+
+  const flashToast = useCallback((message: string, tone: 'info' | 'success' | 'warning' = 'info') => {
+    setToast({ visible: true, message, tone });
+    setTimeout(() => {
+      setToast((prev) => ({ ...prev, visible: false }));
+    }, 1400);
+  }, []);
+
+  const dismissWalkthrough = useCallback(async () => {
+    setShowWalkthrough(false);
     try {
-      const result = await fetchInspirationFeed(
-        gender as 'men' | 'women',
-        pageNum,
-        chip || undefined,
-      );
+      await AsyncStorage.setItem(WALKTHROUGH_KEY, 'true');
+    } catch (error) {
+      console.log('[Inspire] Failed to persist walkthrough state:', error);
+    }
+  }, []);
 
-      if (result.length === 0) {
-        setHasMore(false);
-      }
+  const logEvent = useCallback((name: string, payload?: Record<string, unknown>) => {
+    console.log(`[analytics] ${name}`, payload || {});
+  }, []);
 
-      if (append) {
-        setItems(prev => {
-          const existingIds = new Set(prev.map(i => i.id));
-          const newItems = result.filter(i => !existingIds.has(i.id));
-          return [...prev, ...newItems];
-        });
-      } else {
-        setItems(result);
-        setHasMore(true);
+  const loadInitialFeed = useCallback(async (reset = false) => {
+    try {
+      setIsLoading(true);
+      const response = await fetchInspiration(effectiveGender, preferenceQuery || undefined, undefined);
+      setInspirationFeedQueue(response.items);
+      setCursor(response.nextCursor);
+      setActiveIndex(0);
+      logEvent('inspire_view', { count: response.items.length, gender: effectiveGender });
+      if (reset) {
+        flashToast('Feed refreshed', 'info');
       }
-    } catch (e) {
-      console.log('[Inspiration] Error fetching feed:', e);
+    } catch (error) {
+      console.log('[Inspire] Failed to load initial feed:', error);
+      flashToast('Could not load inspiration', 'warning');
     } finally {
       setIsLoading(false);
-      setIsLoadingMore(false);
-      setIsRefreshing(false);
     }
-  }, [gender]);
+  }, [effectiveGender, flashToast, logEvent, preferenceQuery, setInspirationFeedQueue]);
+
+  const fetchMore = useCallback(async () => {
+    if (fetchingRef.current) return;
+    const remaining = inspirationQueue.length - activeIndex;
+    if (remaining >= BUFFER_LOW_WATERMARK) return;
+
+    fetchingRef.current = true;
+    setIsFetchingMore(true);
+    try {
+      const response = await fetchInspiration(effectiveGender, preferenceQuery || undefined, cursor);
+      appendInspirationFeedQueue(response.items);
+      setCursor(response.nextCursor);
+    } catch (error) {
+      console.log('[Inspire] Failed to fetch more:', error);
+    } finally {
+      fetchingRef.current = false;
+      setIsFetchingMore(false);
+    }
+  }, [activeIndex, appendInspirationFeedQueue, cursor, effectiveGender, inspirationQueue.length, preferenceQuery]);
 
   useEffect(() => {
-    fetchFeed(1, selectedChip);
-  }, [selectedChip, gender, fetchFeed]);
+    AsyncStorage.getItem(WALKTHROUGH_KEY)
+      .then((value) => {
+        if (value !== 'true') {
+          setShowWalkthrough(true);
+        }
+      })
+      .catch((error) => {
+        console.log('[Inspire] Failed to read walkthrough state:', error);
+      });
+  }, []);
 
-  const handleChipPress = useCallback((chip: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setPage(1);
-    if (selectedChip === chip) {
-      setSelectedChip(null);
-    } else {
-      setSelectedChip(chip);
+  useEffect(() => {
+    if (profileGender && profileGender !== inspirationGender) {
+      setInspirationGenderPreference(profileGender);
     }
-  }, [selectedChip]);
+  }, [inspirationGender, profileGender, setInspirationGenderPreference]);
 
-  const handleRefresh = useCallback(() => {
-    setIsRefreshing(true);
-    setPage(1);
-    fetchFeed(1, selectedChip);
-  }, [fetchFeed, selectedChip]);
+  useEffect(() => {
+    loadInitialFeed();
+  }, [loadInitialFeed]);
 
-  const handleLoadMore = useCallback(() => {
-    if (isLoadingMore || !hasMore) return;
-    const nextPage = page + 1;
-    setPage(nextPage);
-    fetchFeed(nextPage, selectedChip, true);
-  }, [page, isLoadingMore, hasMore, fetchFeed, selectedChip]);
+  useEffect(() => {
+    if (inspirationQueue.length > 0) {
+      prefetchInspirationImages(inspirationQueue, activeIndex + 1).catch(() => {});
+    }
+  }, [activeIndex, inspirationQueue]);
 
-  const handleItemPress = useCallback((item: InspirationItem) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push({
-      pathname: '/inspiration-detail' as any,
-      params: { itemData: JSON.stringify(item) },
-    });
-  }, [router]);
+  useEffect(() => {
+    if (fetchDebounceRef.current) clearTimeout(fetchDebounceRef.current);
+    fetchDebounceRef.current = setTimeout(() => {
+      fetchMore();
+    }, 140);
+    return () => {
+      if (fetchDebounceRef.current) clearTimeout(fetchDebounceRef.current);
+    };
+  }, [activeIndex, fetchMore]);
 
-  const handleQuickSave = useCallback((item: InspirationItem) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    saveInspirationItem(item);
-  }, [saveInspirationItem]);
+  useEffect(() => {
+    if (inspirationQueue.length > 30 && activeIndex > 12) {
+      setInspirationFeedQueue(inspirationQueue.slice(activeIndex));
+      setActiveIndex(0);
+    }
+  }, [activeIndex, inspirationQueue, setInspirationFeedQueue]);
 
-  /* ── Masonry layout ── */
-  const { leftColumn, rightColumn } = useMemo(() => {
-    const left: InspirationItem[] = [];
-    const right: InspirationItem[] = [];
-    let leftHeight = 0;
-    let rightHeight = 0;
+  useEffect(() => {
+    if (calibrationRef.current < inspirationCalibration.progress && inspirationCalibration.isCalibrated) {
+      flashToast('Style profile updated', 'success');
+      logEvent('inspire_calibration_complete');
+      loadInitialFeed(true);
+    }
+    calibrationRef.current = inspirationCalibration.progress;
+  }, [flashToast, inspirationCalibration.isCalibrated, inspirationCalibration.progress, loadInitialFeed, logEvent]);
 
-    for (const item of items) {
-      const ratio = item.height / item.width;
-      const displayHeight = COLUMN_WIDTH * Math.min(Math.max(ratio, 0.9), 1.6);
+  const recreateCoverage = useMemo(() => {
+    if (!activeCard || closetItems.length === 0) return null;
+    const categories = ['top', 'shirt', 'pants', 'jeans', 'sneakers', 'shoes'];
+    const closetMatches = closetItems.filter((item) =>
+      categories.some((key) => item.category.toLowerCase().includes(key))
+    ).length;
+    const pct = Math.max(20, Math.min(95, Math.round((closetMatches / Math.max(closetItems.length, 1)) * 100)));
+    return `${pct}%`;
+  }, [activeCard, closetItems]);
 
-      if (leftHeight <= rightHeight) {
-        left.push(item);
-        leftHeight += displayHeight + GAP;
-      } else {
-        right.push(item);
-        rightHeight += displayHeight + GAP;
-      }
+  const handleSwipe = useCallback((action: SwipeAction, card: InspirationCard) => {
+    if (showWalkthrough) {
+      dismissWalkthrough();
     }
 
-    return { leftColumn: left, rightColumn: right };
-  }, [items]);
+    recordInspirationSwipe(card, action);
+    const eventName =
+      action === 'like'
+        ? 'inspire_swipe_like'
+        : action === 'dislike'
+          ? 'inspire_swipe_dislike'
+          : action === 'save'
+            ? 'inspire_swipe_save'
+            : 'inspire_swipe_similar';
+    logEvent(eventName, { cardId: card.id, gender: card.gender, tags: card.tags || [] });
 
-  const subtitle = isMale ? "Men's outfit ideas" : "Women's outfit ideas";
+    if (action === 'save') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      flashToast(recreateCoverage ? `Saved • You can recreate ~${recreateCoverage}` : 'Saved to inspiration', 'success');
+    }
+    if (action === 'like' || action === 'dislike') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+
+    if (action === 'similar' && card.tags?.[0]) {
+      fetchInspiration(effectiveGender, card.tags[0], undefined)
+        .then((response) => {
+          appendInspirationFeedQueue(response.items);
+          flashToast(`More ${card.tags?.[0]} looks`, 'info');
+        })
+        .catch((error) => {
+          console.log('[Inspire] Similar fetch failed:', error);
+        });
+    }
+
+    setActiveIndex((prev) => prev + 1);
+  }, [appendInspirationFeedQueue, dismissWalkthrough, effectiveGender, flashToast, logEvent, recordInspirationSwipe, recreateCoverage, showWalkthrough]);
+
+  const handleSaveActive = useCallback(() => {
+    if (!activeCard) return;
+    const alreadySaved = isInspirationCardSaved(activeCard.id);
+    toggleInspirationSaved(activeCard);
+    flashToast(alreadySaved ? 'Removed from saved inspiration' : 'Saved inspiration', 'success');
+    if (!alreadySaved) {
+      recordInspirationSwipe(activeCard, 'save');
+      logEvent('inspire_swipe_save', { cardId: activeCard.id, via: 'button' });
+    }
+  }, [activeCard, flashToast, isInspirationCardSaved, logEvent, recordInspirationSwipe, toggleInspirationSaved]);
+
+  const handleFindSimilar = useCallback(async (card: InspirationCard) => {
+    logEvent('inspire_swipe_similar', { cardId: card.id, via: 'detail' });
+    recordInspirationSwipe(card, 'similar');
+    try {
+      const response = await fetchInspiration(effectiveGender, card.tags?.[0], undefined);
+      setInspirationFeedQueue([...response.items, ...inspirationQueue].slice(0, BUFFER_TARGET));
+      setSelectedCard(null);
+      flashToast('Added similar looks', 'success');
+    } catch (error) {
+      console.log('[Inspire] Failed to find similar looks:', error);
+      flashToast('Could not find similar looks', 'warning');
+    }
+  }, [effectiveGender, flashToast, inspirationQueue, logEvent, recordInspirationSwipe, setInspirationFeedQueue]);
 
   return (
-    <View style={s.container}>
-      <SafeAreaView style={s.safe} edges={['top']}>
-        <AppHeader title="Inspiration" subtitle={subtitle} />
-
-        {/* Filter chips */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={s.chipRow}
-          style={s.chipScroll}
-        >
-          {chips.map(chip => {
-            const isActive = selectedChip === chip;
-            return (
-              <TouchableOpacity
-                key={chip}
-                style={[s.chip, isActive && s.chipActive]}
-                onPress={() => handleChipPress(chip)}
-                activeOpacity={0.85}
-              >
-                <Text style={[s.chipText, isActive && s.chipTextActive]}>{chip}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-
-        {/* Feed */}
-        {isLoading && items.length === 0 ? (
-          <SkeletonGrid />
-        ) : items.length === 0 ? (
-          <View style={s.emptyState}>
-            <View style={s.emptyIcon}>
-              <Search size={40} color={palette.inkMuted} />
+    <View style={styles.container}>
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <View style={styles.topBar}>
+          {shouldShowSegmented ? (
+            <View style={styles.segmentWrap}>
+              {(['men', 'women'] as const).map((option) => {
+                const active = effectiveGender === option;
+                return (
+                  <TouchableOpacity
+                    key={option}
+                    style={[styles.segmentBtn, active && styles.segmentBtnActive]}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      if (active) return;
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setInspirationGenderPreference(option);
+                    }}
+                  >
+                    <Text style={[styles.segmentText, active && styles.segmentTextActive]}>
+                      {option === 'men' ? 'Men' : 'Women'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
-            <Text style={s.emptyTitle}>No results found</Text>
-            <Text style={s.emptySubtitle}>
-              Try a different filter or pull to refresh
-            </Text>
-          </View>
-        ) : (
-          <ScrollView
-            style={s.feed}
-            contentContainerStyle={s.feedContent}
-            showsVerticalScrollIndicator={false}
-            refreshControl={
-              <RefreshControl
-                refreshing={isRefreshing}
-                onRefresh={handleRefresh}
-                tintColor={palette.accent}
-              />
-            }
-            onScroll={({ nativeEvent }) => {
-              const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
-              const isNearEnd = layoutMeasurement.height + contentOffset.y >= contentSize.height - 500;
-              if (isNearEnd) handleLoadMore();
-            }}
-            scrollEventThrottle={400}
-          >
-            <View style={s.masonry}>
-              <View style={s.column}>
-                {leftColumn.map(item => (
-                  <MasonryCard
-                    key={item.id}
-                    item={item}
-                    onPress={handleItemPress}
-                    onSave={handleQuickSave}
-                    isSaved={isInspirationItemSaved(item.id)}
-                  />
-                ))}
-              </View>
-              <View style={s.column}>
-                {rightColumn.map(item => (
-                  <MasonryCard
-                    key={item.id}
-                    item={item}
-                    onPress={handleItemPress}
-                    onSave={handleQuickSave}
-                    isSaved={isInspirationItemSaved(item.id)}
-                  />
-                ))}
-              </View>
-            </View>
-
-            {isLoadingMore && (
-              <View style={s.loadingMore}>
-                <ActivityIndicator size="small" color={palette.accent} />
-                <Text style={s.loadingMoreText}>Loading more...</Text>
-              </View>
-            )}
-
-            <View style={{ height: 80 }} />
-          </ScrollView>
-        )}
-      </SafeAreaView>
-    </View>
-  );
-}
-
-function formatOutfitLabel(item: InspirationItem): string {
-  const style = item.styleTags[0] || '';
-  const pieces = item.aiDetectedPieces && item.aiDetectedPieces.length > 0
-    ? item.aiDetectedPieces
-    : item.keyPieces;
-  const topTwo = pieces.slice(0, 2).map(p =>
-    p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()
-  );
-  if (style && topTwo.length > 0) {
-    return `${style} · ${topTwo.join(' + ')}`;
-  }
-  if (style) return style;
-  return topTwo.join(' + ');
-}
-
-/* ── Masonry Card ── */
-function MasonryCard({
-  item,
-  onPress,
-  onSave,
-  isSaved,
-}: {
-  item: InspirationItem;
-  onPress: (item: InspirationItem) => void;
-  onSave: (item: InspirationItem) => void;
-  isSaved: boolean;
-}) {
-  const ratio = item.height / item.width;
-  const displayHeight = COLUMN_WIDTH * Math.min(Math.max(ratio, 0.9), 1.6);
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-
-  const handlePressIn = () => {
-    Animated.spring(scaleAnim, {
-      toValue: motion.pressScale,
-      useNativeDriver: true,
-      speed: 50,
-      bounciness: 4,
-    }).start();
-  };
-
-  const handlePressOut = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 1,
-      useNativeDriver: true,
-      speed: 40,
-      bounciness: 6,
-    }).start();
-  };
-
-  return (
-    <Animated.View style={[{ transform: [{ scale: scaleAnim }] }, s.cardWrap]}>
-      <TouchableOpacity
-        style={[s.card, { height: displayHeight }]}
-        onPress={() => onPress(item)}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        activeOpacity={1}
-      >
-        <Image
-          source={{ uri: item.thumbnailUrl }}
-          style={s.cardImage}
-          contentFit="cover"
-          transition={300}
-        />
-
-        {/* Save button */}
-        <TouchableOpacity
-          style={[s.saveBtn, isSaved && s.saveBtnActive]}
-          onPress={(e) => {
-            e.stopPropagation?.();
-            onSave(item);
-          }}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          {isSaved ? (
-            <BookmarkCheck size={16} color={palette.white} />
           ) : (
-            <Bookmark size={16} color={palette.white} />
+            <View style={styles.singleGenderLabelWrap}>
+              <Text style={styles.singleGenderLabel}>{effectiveGender === 'men' ? 'Men Inspiration' : 'Women Inspiration'}</Text>
+            </View>
           )}
-        </TouchableOpacity>
+          <TouchableOpacity style={styles.filterIcon} activeOpacity={0.7}>
+            <SlidersHorizontal size={18} color={palette.inkLight} />
+          </TouchableOpacity>
+        </View>
 
-        {/* Outfit label: "Style • piece + piece" */}
-        {(item.styleTags[0] || (item.aiDetectedPieces && item.aiDetectedPieces.length > 0)) && (
-          <View style={s.outfitLabel}>
-            <Text style={s.outfitLabelText} numberOfLines={1}>
-              {formatOutfitLabel(item)}
+        {!inspirationCalibration.isCalibrated ? (
+          <View style={styles.calibrationBanner}>
+            <Text style={styles.calibrationTitle}>Calibrate your stylist: swipe 20 looks</Text>
+            <Text style={styles.calibrationProgress}>
+              {Math.min(inspirationCalibration.progress, inspirationCalibration.swipesToCalibrate)}/{inspirationCalibration.swipesToCalibrate}
             </Text>
           </View>
-        )}
-      </TouchableOpacity>
-    </Animated.View>
-  );
-}
+        ) : null}
 
-/* ── Skeleton Grid ── */
-function SkeletonGrid() {
-  const pulseAnim = useRef(new Animated.Value(0.3)).current;
-
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 0.7, duration: 800, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 0.3, duration: 800, useNativeDriver: true }),
-      ])
-    ).start();
-  }, [pulseAnim]);
-
-  const heights = [220, 280, 240, 200, 260, 230, 250, 210];
-
-  return (
-    <View style={s.skeletonContainer}>
-      <View style={s.masonry}>
-        <View style={s.column}>
-          {heights.slice(0, 4).map((h, i) => (
-            <Animated.View
-              key={`l-${i}`}
-              style={[s.skeleton, { height: h, opacity: pulseAnim }]}
+        <View style={styles.deckArea}>
+          {isLoading ? (
+            <View style={styles.loadingWrap}>
+              <ActivityIndicator size="small" color={palette.accent} />
+              <Text style={styles.loadingText}>Loading editorial looks...</Text>
+            </View>
+          ) : (
+            <InspireSwipeDeck
+              ref={deckRef}
+              cards={inspirationQueue}
+              activeIndex={activeIndex}
+              onSwipe={handleSwipe}
+              onCardPress={(card) => {
+                logEvent('inspire_open_detail', { cardId: card.id });
+                setSelectedCard(card);
+              }}
             />
-          ))}
+          )}
         </View>
-        <View style={s.column}>
-          {heights.slice(4, 8).map((h, i) => (
-            <Animated.View
-              key={`r-${i}`}
-              style={[s.skeleton, { height: h, opacity: pulseAnim }]}
-            />
-          ))}
+
+        <View style={styles.bottomBar}>
+          <PressableScale style={styles.actionWrap} onPress={() => deckRef.current?.swipeLeft()}>
+            <View style={styles.actionBtn}>
+              <Minus size={22} color={palette.inkLight} />
+            </View>
+          </PressableScale>
+
+          <PressableScale style={styles.actionWrap} onPress={handleSaveActive}>
+            <View style={styles.actionBtnPrimary}>
+              {activeCard && isInspirationCardSaved(activeCard.id) ? (
+                <BookmarkCheck size={20} color={palette.white} />
+              ) : (
+                <Bookmark size={20} color={palette.white} />
+              )}
+            </View>
+          </PressableScale>
+
+          <PressableScale style={styles.actionWrap} onPress={() => deckRef.current?.swipeRight()}>
+            <View style={styles.actionBtn}>
+              <Plus size={22} color={palette.inkLight} />
+            </View>
+          </PressableScale>
         </View>
-      </View>
+
+        {isFetchingMore ? (
+          <View style={styles.fetchingMore}>
+            <ActivityIndicator size="small" color={palette.inkMuted} />
+          </View>
+        ) : null}
+      </SafeAreaView>
+
+      <InspireWalkthrough visible={showWalkthrough} onDismiss={dismissWalkthrough} showSimilar />
+
+      <Modal visible={!!selectedCard} animationType="slide" transparent onRequestClose={() => setSelectedCard(null)}>
+        <View style={styles.sheetBackdrop}>
+          <TouchableOpacity style={styles.sheetDismissLayer} activeOpacity={1} onPress={() => setSelectedCard(null)} />
+          <View style={styles.sheet}>
+            {selectedCard ? (
+              <>
+                <Image source={{ uri: selectedCard.imageUrl }} style={styles.sheetImage} contentFit="cover" />
+                <Text style={styles.sheetTitle}>Why this works</Text>
+                <Text style={styles.sheetBody}>{whyThisWorks(selectedCard)}</Text>
+
+                <Text style={styles.sheetTitle}>Key pieces</Text>
+                <View style={styles.piecesRow}>
+                  {keyPieces(selectedCard).map((piece) => (
+                    <View key={piece} style={styles.piecePill}>
+                      <Text style={styles.pieceText}>{piece}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                <View style={styles.sheetActions}>
+                  <TouchableOpacity
+                    style={styles.sheetAction}
+                    onPress={() => {
+                      if (selectedCard.linkUrl) Linking.openURL(selectedCard.linkUrl);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.sheetActionText}>Open source</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.sheetAction, styles.sheetActionPrimary]}
+                    onPress={() => {
+                      toggleInspirationSaved(selectedCard);
+                      flashToast('Saved inspiration', 'success');
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.sheetActionPrimaryText}>Save</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.sheetAction}
+                    onPress={() => handleFindSimilar(selectedCard)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.sheetActionText}>Find similar</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+
+      <Toast visible={toast.visible} message={toast.message} tone={toast.tone} />
     </View>
   );
 }
 
-/* ── Styles ── */
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: palette.warmWhite },
-  safe: { flex: 1 },
-
-  /* Chips */
-  chipScroll: {
-    flexGrow: 0,
-    flexShrink: 0,
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: palette.warmWhite,
   },
-  chipRow: {
+  safeArea: {
+    flex: 1,
+    paddingHorizontal: space.screen,
+  },
+  topBar: {
+    marginTop: space.sm,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: space.screen,
-    paddingTop: 8,
-    paddingBottom: 12,
+    justifyContent: 'space-between',
+  },
+  segmentWrap: {
+    flexDirection: 'row',
+    backgroundColor: palette.warmWhiteDark,
+    borderRadius: radius.pill,
+    padding: 4,
+    flex: 1,
+    marginRight: space.md,
+  },
+  segmentBtn: {
+    flex: 1,
+    height: 36,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  segmentBtnActive: {
+    backgroundColor: palette.white,
+    ...shadow.soft,
+  },
+  segmentText: {
+    ...typo.bodyMedium,
+    color: palette.inkMuted,
+  },
+  segmentTextActive: {
+    color: palette.ink,
+    fontWeight: '600',
+  },
+  singleGenderLabelWrap: {
+    flex: 1,
+    marginRight: space.md,
+    height: 36,
+    justifyContent: 'center',
+  },
+  singleGenderLabel: {
+    ...typo.sectionHeader,
+    color: palette.ink,
+    fontSize: 18,
+  },
+  filterIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: palette.white,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  calibrationBanner: {
+    marginTop: space.md,
+    backgroundColor: palette.accentLight,
+    borderRadius: radius.md,
+    paddingHorizontal: space.md,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  calibrationTitle: {
+    ...typo.caption,
+    color: palette.ink,
+    fontWeight: '600',
+  },
+  calibrationProgress: {
+    ...typo.caption,
+    color: palette.accentDark,
+    fontWeight: '700',
+  },
+  deckArea: {
+    flex: 1,
+    marginTop: space.md,
+  },
+  loadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.sm,
+  },
+  loadingText: {
+    ...typo.body,
+    color: palette.inkMuted,
+  },
+  bottomBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 18,
+    paddingVertical: space.md,
+  },
+  actionWrap: {
+    borderRadius: radius.pill,
+  },
+  actionBtn: {
+    width: 56,
+    height: 56,
+    borderRadius: radius.pill,
+    backgroundColor: palette.white,
+    borderWidth: 1,
+    borderColor: palette.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadow.soft,
+  },
+  actionBtnPrimary: {
+    width: 56,
+    height: 56,
+    borderRadius: radius.pill,
+    backgroundColor: palette.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadow.button,
+  },
+  fetchingMore: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingBottom: space.sm,
+  },
+  sheetBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(28,28,28,0.24)',
+  },
+  sheetDismissLayer: {
+    flex: 1,
+  },
+  sheet: {
+    backgroundColor: palette.warmWhite,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    padding: space.lg,
+    gap: space.md,
+    maxHeight: '82%',
+  },
+  sheetImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: radius.lg,
+    backgroundColor: palette.warmWhiteDark,
+  },
+  sheetTitle: {
+    ...typo.sectionHeader,
+    color: palette.ink,
+    fontSize: 17,
+  },
+  sheetBody: {
+    ...typo.body,
+    color: palette.inkLight,
+  },
+  piecesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
   },
-  chip: {
-    height: CHIP_HEIGHT,
-    paddingHorizontal: 16,
+  piecePill: {
+    paddingHorizontal: 12,
+    height: 30,
     borderRadius: radius.pill,
     backgroundColor: palette.warmWhiteDark,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  chipActive: { backgroundColor: palette.accent },
-  chipText: { ...typo.chip, color: palette.inkLight },
-  chipTextActive: { ...typo.chip, color: palette.white },
-
-  /* Feed */
-  feed: { flex: 1 },
-  feedContent: { paddingHorizontal: space.screen },
-
-  /* Masonry */
-  masonry: { flexDirection: 'row', gap: GAP },
-  column: { flex: 1, gap: GAP },
-
-  /* Card */
-  cardWrap: { marginBottom: 0 },
-  card: {
-    borderRadius: radius.lg,
-    overflow: 'hidden',
-    backgroundColor: palette.warmWhiteDark,
+  pieceText: {
+    ...typo.caption,
+    color: palette.ink,
   },
-  cardImage: { width: '100%', height: '100%' },
-  saveBtn: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(44, 40, 37, 0.45)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  saveBtnActive: { backgroundColor: palette.accent },
-  outfitLabel: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    backgroundColor: 'rgba(20, 18, 16, 0.55)',
-    borderBottomLeftRadius: radius.lg,
-    borderBottomRightRadius: radius.lg,
-  },
-  outfitLabelText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: palette.white,
-    letterSpacing: 0.2,
-  },
-
-  /* Loading more */
-  loadingMore: {
+  sheetActions: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 20,
     gap: 8,
+    marginTop: space.sm,
   },
-  loadingMoreText: { ...typo.caption, color: palette.inkMuted },
-
-  /* Empty */
-  emptyState: {
+  sheetAction: {
     flex: 1,
+    height: 42,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: space.xxl,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.white,
   },
-  emptyIcon: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    backgroundColor: palette.warmWhiteDark,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: space.lg,
+  sheetActionPrimary: {
+    backgroundColor: palette.accent,
+    borderColor: palette.accent,
   },
-  emptyTitle: { ...typo.sectionHeader, color: palette.ink, marginBottom: space.sm },
-  emptySubtitle: { ...typo.body, fontSize: 14, color: palette.inkMuted, textAlign: 'center' },
-
-  /* Skeleton */
-  skeletonContainer: {
-    flex: 1,
-    paddingHorizontal: space.screen,
-    paddingTop: 4,
+  sheetActionText: {
+    ...typo.caption,
+    color: palette.ink,
+    fontWeight: '600',
   },
-  skeleton: {
-    backgroundColor: palette.warmWhiteDark,
-    borderRadius: radius.lg,
+  sheetActionPrimaryText: {
+    ...typo.caption,
+    color: palette.white,
+    fontWeight: '600',
   },
 });

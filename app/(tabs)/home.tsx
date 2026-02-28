@@ -1,23 +1,24 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Animated, View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Camera, Image as ImageIcon, Sparkles, ChevronDown, CalendarClock } from 'lucide-react-native';
+import { Camera, Image as ImageIcon, Sparkles, ChevronDown, CalendarClock, Flame, ArrowRight } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import { useApp } from '@/contexts/AppContext';
 import { space, radius, shadow, palette, type as typo } from '@/constants/theme';
 import { AppHeader } from '@/components/AppHeader';
-import { IconButton } from '@/components/IconButton';
 import { Button } from '@/components/Button';
 import { Chip } from '@/components/Chip';
 import { Card } from '@/components/Card';
-import { OCCASIONS, FEMALE_STYLE_VIBES, MALE_STYLE_VIBES, Occasion, StyleVibe } from '@/types';
-import { getMockWeather } from '@/utils/mockAnalysis';
+import { OCCASIONS, FEMALE_STYLE_VIBES, MALE_STYLE_VIBES, Occasion, StyleVibe, WeatherSnapshot } from '@/types';
+import { getLiveWeatherForDate } from '@/utils/weather';
+import { getXpProgress } from '@/utils/gamification';
+import { easings, useReduceMotion } from '@/lib/motion';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { preferences, themeColors, closetItems, setCurrentWeather } = useApp();
+  const { preferences, themeColors, closetItems, gamificationState, setCurrentWeather } = useApp();
 
   const styleVibes = preferences.gender === 'male' ? MALE_STYLE_VIBES : FEMALE_STYLE_VIBES;
 
@@ -29,8 +30,49 @@ export default function HomeScreen() {
   );
   const [showOccasions, setShowOccasions] = useState(false);
   const [showVibes, setShowVibes] = useState(false);
+  const [weather, setWeather] = useState<WeatherSnapshot | null>(null);
+  const currentStreak = gamificationState.streak.current;
+  const xpProgress = getXpProgress(gamificationState.xp, gamificationState.level);
+  const reduceMotion = useReduceMotion();
+  const streakScale = React.useRef(new Animated.Value(1)).current;
+  const previousStreakRef = React.useRef(currentStreak);
 
-  const weather = getMockWeather();
+  const loadWeather = useCallback(async () => {
+    try {
+      const liveWeather = await getLiveWeatherForDate();
+      setWeather(liveWeather);
+      setCurrentWeather(liveWeather);
+    } catch (error) {
+      console.log('[Home] Live weather unavailable:', error);
+      setWeather(null);
+    }
+  }, [setCurrentWeather]);
+
+  useEffect(() => {
+    loadWeather();
+  }, [loadWeather]);
+
+  useEffect(() => {
+    const prev = previousStreakRef.current;
+    const next = currentStreak;
+    if (next > prev && !reduceMotion) {
+      Animated.sequence([
+        Animated.timing(streakScale, {
+          toValue: 1.08,
+          duration: 120,
+          easing: easings.outCubic,
+          useNativeDriver: true,
+        }),
+        Animated.spring(streakScale, {
+          toValue: 1,
+          tension: 180,
+          friction: 16,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+    previousStreakRef.current = next;
+  }, [currentStreak, reduceMotion, streakScale]);
 
   const handleTakePhoto = () => {
     router.push({
@@ -59,8 +101,14 @@ export default function HomeScreen() {
 
   const handlePlanOutfit = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setCurrentWeather(weather);
+    if (weather) {
+      setCurrentWeather(weather);
+    }
     router.push('/plan-outfit' as any);
+  };
+
+  const handleViewProgress = () => {
+    router.push('/progress' as any);
   };
 
   const subtitle =
@@ -69,6 +117,7 @@ export default function HomeScreen() {
       : 'Ready for your fit check? ✨';
 
   const getWeatherIcon = () => {
+    if (!weather) return '📍';
     switch (weather.condition) {
       case 'sunny':
         return '☀️';
@@ -99,7 +148,7 @@ export default function HomeScreen() {
             right={
               <View style={styles.weatherBadge}>
                 <Text style={styles.weatherEmoji}>{getWeatherIcon()}</Text>
-                <Text style={styles.weatherTemp}>{weather.temperature}°</Text>
+                <Text style={styles.weatherTemp}>{weather ? `${weather.temperature}°` : '--°'}</Text>
               </View>
             }
           />
@@ -156,6 +205,35 @@ export default function HomeScreen() {
               icon={<Sparkles size={18} color="#FFFFFF" />}
               disabled={closetItems.length < 2}
             />
+          </Card>
+
+          <Card style={styles.progressCard} padding="medium" variant="outlined">
+            <View style={styles.progressHeader}>
+              <View>
+                <Text style={styles.progressLabel}>Progress</Text>
+                <Text style={styles.progressLevel}>Style Level {gamificationState.level}</Text>
+              </View>
+              <View style={styles.streakPill}>
+                <Animated.View style={{ transform: [{ scale: streakScale }] }}>
+                  <Flame size={14} color={palette.secondary} />
+                </Animated.View>
+                <Text style={styles.streakText}>
+                  {gamificationState.streak.current}-day streak
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.xpTrack}>
+              <View style={[styles.xpFill, { width: `${Math.max(4, xpProgress.pct * 100)}%` }]} />
+            </View>
+            <Text style={styles.xpMeta}>
+              {xpProgress.current} / {xpProgress.needed} XP
+            </Text>
+
+            <TouchableOpacity style={styles.progressCta} onPress={handleViewProgress} activeOpacity={0.8}>
+              <Text style={styles.progressCtaText}>View Progress</Text>
+              <ArrowRight size={16} color={palette.inkLight} />
+            </TouchableOpacity>
           </Card>
 
           <View style={styles.section}>
@@ -310,6 +388,68 @@ const styles = StyleSheet.create({
     marginBottom: space.xl,
     backgroundColor: palette.secondaryLight,
     borderWidth: 0,
+  },
+  progressCard: {
+    marginBottom: space.xl,
+    backgroundColor: palette.white,
+    borderColor: palette.border,
+  },
+  progressHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: space.md,
+  },
+  progressLabel: {
+    ...typo.small,
+    color: palette.inkMuted,
+    marginBottom: 2,
+  },
+  progressLevel: {
+    ...typo.sectionHeader,
+    color: palette.ink,
+  },
+  streakPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    backgroundColor: palette.secondaryLight,
+  },
+  streakText: {
+    ...typo.caption,
+    color: palette.inkLight,
+  },
+  xpTrack: {
+    height: 8,
+    borderRadius: radius.pill,
+    backgroundColor: palette.borderLight,
+    overflow: 'hidden',
+    marginBottom: space.xs,
+  },
+  xpFill: {
+    height: '100%',
+    backgroundColor: palette.accent,
+    borderRadius: radius.pill,
+  },
+  xpMeta: {
+    ...typo.small,
+    color: palette.inkMuted,
+    marginBottom: space.md,
+  },
+  progressCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: space.sm,
+    borderTopWidth: 1,
+    borderTopColor: palette.borderLight,
+  },
+  progressCtaText: {
+    ...typo.bodyMedium,
+    color: palette.ink,
   },
   planHeader: {
     flexDirection: 'row',

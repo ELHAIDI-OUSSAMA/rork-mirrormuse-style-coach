@@ -44,6 +44,12 @@ function RootLayoutNav() {
           headerShown: false,
         }} 
       />
+      <Stack.Screen
+        name="progress"
+        options={{
+          headerShown: false,
+        }}
+      />
       <Stack.Screen name="+not-found" />
     </Stack>
   );

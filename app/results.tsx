@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
   Share,
   Alert,
   Dimensions,
@@ -19,47 +18,202 @@ import {
   ArrowLeft,
   Bookmark,
   Sparkles,
-  Heart,
   Wand2,
-  Share2,
   ArrowRight,
 } from 'lucide-react-native';
+import Svg, { Circle } from 'react-native-svg';
 import { useApp } from '@/contexts/AppContext';
 import { LookAnalysis, ClosetItem } from '@/types';
 import { enqueueProcessing } from '@/lib/processingQueue';
-import { space, radius, shadow, palette, type as typo, motion } from '@/constants/theme';
+import { space, radius, shadow, palette, type as typo } from '@/constants/theme';
 import { Card } from '@/components/Card';
 import { IconButton } from '@/components/IconButton';
+import { Toast } from '@/components/Toast';
+import { PressableScale } from '@/components/PressableScale';
+import { durations, easings, stagger, useReduceMotion } from '@/lib/motion';
+
+const AnimatedCircle = Animated.createAnimatedComponent(Circle as any);
+
+function ScoreRing({ score10, color }: { score10: number; color: string }) {
+  const reduceMotion = useReduceMotion();
+  const size = 86;
+  const stroke = 6;
+  const radiusSize = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radiusSize;
+  const progress = Math.max(0, Math.min(score10 / 10, 1));
+  const progressValue = useRef(new Animated.Value(reduceMotion ? progress : 0)).current;
+
+  useEffect(() => {
+    if (reduceMotion) {
+      progressValue.setValue(progress);
+      return;
+    }
+    Animated.timing(progressValue, {
+      toValue: progress,
+      duration: 800,
+      easing: easings.outExpo,
+      useNativeDriver: false,
+    }).start();
+  }, [progress, progressValue, reduceMotion]);
+
+  const strokeDashoffset = progressValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: [circumference, 0],
+  });
+
+  return (
+    <View style={s.ringWrap}>
+      <Svg width={size} height={size} style={{ transform: [{ rotate: '-90deg' }] }}>
+        <Circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radiusSize}
+          stroke={palette.borderLight}
+          strokeWidth={stroke}
+          fill="none"
+        />
+        <AnimatedCircle
+          cx={size / 2}
+          cy={size / 2}
+          r={radiusSize}
+          stroke={color}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          fill="none"
+          strokeDasharray={circumference}
+          strokeDashoffset={strokeDashoffset as any}
+        />
+      </Svg>
+      <View style={s.ringCenter}>
+        <Text style={[s.scoreNumber, { color }]}>{score10.toFixed(1)}</Text>
+        <Text style={s.scoreOf}>/10</Text>
+      </View>
+    </View>
+  );
+}
+
+function VibePill({ tag, index, reduceMotion }: { tag: string; index: number; reduceMotion: boolean }) {
+  const opacity = useRef(new Animated.Value(reduceMotion ? 1 : 0)).current;
+  const translateX = useRef(new Animated.Value(reduceMotion ? 0 : -8)).current;
+
+  useEffect(() => {
+    if (reduceMotion) return;
+    Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 1,
+        delay: stagger(index),
+        duration: durations.normal,
+        easing: easings.outCubic,
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateX, {
+        toValue: 0,
+        delay: stagger(index),
+        duration: durations.normal,
+        easing: easings.outCubic,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [index, opacity, reduceMotion, translateX]);
+
+  return (
+    <Animated.View style={{ opacity, transform: [{ translateX }] }}>
+      <View style={s.vibePill}>
+        <Text style={s.vibePillText}>{tag}</Text>
+      </View>
+    </Animated.View>
+  );
+}
 
 export default function ResultsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ analysisId: string; analysisData: string }>();
-  const { addLook, savedLooks, addClosetItem, themeColors, preferences } = useApp();
+  const { addLook, savedLooks, addClosetItem, onOutfitCheckCompleted, themeColors, preferences } = useApp();
   const [analysis, setAnalysis] = useState<LookAnalysis | null>(null);
   const [isSaved, setIsSaved] = useState(false);
   const [showExplanation, setShowExplanation] = useState(false);
   const [itemsAddedToCloset, setItemsAddedToCloset] = useState(false);
-
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(30)).current;
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastTone, setToastTone] = useState<'info' | 'success' | 'warning'>('info');
+  const [toastVisible, setToastVisible] = useState(false);
+  const awardedAnalysisRef = useRef<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reduceMotion = useReduceMotion();
+  const heroOpacity = useRef(new Animated.Value(reduceMotion ? 1 : 0)).current;
+  const heroTranslateY = useRef(new Animated.Value(reduceMotion ? 0 : 18)).current;
+  const scoreOpacity = useRef(new Animated.Value(reduceMotion ? 1 : 0)).current;
+  const scoreScale = useRef(new Animated.Value(reduceMotion ? 1 : 0.92)).current;
+  const verdictOpacity = useRef(new Animated.Value(reduceMotion ? 1 : 0)).current;
+  const verdictTranslateY = useRef(new Animated.Value(reduceMotion ? 0 : 14)).current;
 
   useEffect(() => {
     if (params.analysisData) {
       try {
         const parsed = JSON.parse(params.analysisData);
         setAnalysis(parsed);
+        setItemsAddedToCloset(false);
         const alreadySaved = savedLooks.some(l => l.id === parsed.id);
         setIsSaved(alreadySaved);
 
-        Animated.parallel([
-          Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
-          Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, speed: 12, bounciness: 6 }),
-        ]).start();
       } catch (e) {
         console.log('Error parsing analysis data:', e);
       }
     }
   }, [params.analysisData, savedLooks]);
+
+  useEffect(() => {
+    if (!analysis) return;
+    if (reduceMotion) {
+      heroOpacity.setValue(1);
+      heroTranslateY.setValue(0);
+      scoreOpacity.setValue(1);
+      scoreScale.setValue(1);
+      verdictOpacity.setValue(1);
+      verdictTranslateY.setValue(0);
+      return;
+    }
+    Animated.timing(heroOpacity, { toValue: 1, duration: durations.slow, easing: easings.outCubic, useNativeDriver: true }).start();
+    Animated.timing(heroTranslateY, { toValue: 0, duration: durations.slow, easing: easings.outCubic, useNativeDriver: true }).start();
+    Animated.timing(scoreOpacity, { toValue: 1, delay: 120, duration: durations.normal, easing: easings.outCubic, useNativeDriver: true }).start();
+    Animated.spring(scoreScale, { toValue: 1, delay: 120, tension: 180, friction: 16, useNativeDriver: true }).start();
+    Animated.timing(verdictOpacity, { toValue: 1, delay: 180, duration: durations.normal, easing: easings.outCubic, useNativeDriver: true }).start();
+    Animated.timing(verdictTranslateY, { toValue: 0, delay: 180, duration: durations.normal, easing: easings.outCubic, useNativeDriver: true }).start();
+  }, [
+    analysis,
+    heroOpacity,
+    heroTranslateY,
+    reduceMotion,
+    scoreOpacity,
+    scoreScale,
+    verdictOpacity,
+    verdictTranslateY,
+  ]);
+
+  useEffect(() => {
+    if (!analysis?.id) return;
+    if (awardedAnalysisRef.current === analysis.id) return;
+    awardedAnalysisRef.current = analysis.id;
+    const score10 = Number((analysis.results.fitScore * 2).toFixed(1));
+    onOutfitCheckCompleted(score10, analysis.id);
+  }, [analysis, onOutfitCheckCompleted]);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+    };
+  }, []);
+
+  const showToast = (message: string, tone: 'info' | 'success' | 'warning' = 'info') => {
+    setToastMessage(message);
+    setToastTone(tone);
+    setToastVisible(true);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => {
+      setToastVisible(false);
+    }, 2200);
+  };
 
   const handleSave = () => {
     if (analysis && !isSaved) {
@@ -67,6 +221,21 @@ export default function ResultsScreen() {
       setIsSaved(true);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
+  };
+
+  const heroAnimatedStyle = {
+    opacity: heroOpacity,
+    transform: [{ translateY: heroTranslateY }],
+  };
+
+  const scoreAnimatedStyle = {
+    opacity: scoreOpacity,
+    transform: [{ scale: scoreScale }],
+  };
+
+  const verdictAnimatedStyle = {
+    opacity: verdictOpacity,
+    transform: [{ translateY: verdictTranslateY }],
   };
 
   const CATEGORY_MAP: Record<string, string> = {
@@ -78,13 +247,27 @@ export default function ResultsScreen() {
   };
 
   const handleAddToCloset = () => {
-    if (!analysis || !analysis.results.detectedClothingItems || itemsAddedToCloset) return;
+    if (!analysis || !analysis.results.detectedClothingItems) return;
+    if (itemsAddedToCloset) {
+      showToast('This outfit is already in your closet.', 'warning');
+      return;
+    }
 
     const detectedItems = analysis.results.detectedClothingItems.filter(
-      (item: any) => item.visibility === 'visible'
+      (item: any) =>
+        item.visibility === 'visible' ||
+        (item.visibility === 'partial' && typeof item.confidence === 'number' && item.confidence >= 0.7)
     );
 
-    if (detectedItems.length === 0) {
+    const seen = new Set<string>();
+    const dedupedItems = detectedItems.filter((item: any) => {
+      const key = `${(item.region || '').toLowerCase()}|${(item.subcategory || '').toLowerCase()}|${(item.color || '').toLowerCase()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    if (dedupedItems.length === 0) {
       Alert.alert(
         'No items found',
         'Try a full-body photo with better lighting for best results.',
@@ -98,8 +281,11 @@ export default function ResultsScreen() {
 
     const screenWidth = Dimensions.get('window').width;
 
-    for (let i = 0; i < detectedItems.length; i++) {
-      const detected = detectedItems[i];
+    let addedCount = 0;
+    let duplicateCount = 0;
+
+    for (let i = 0; i < dedupedItems.length; i++) {
+      const detected = dedupedItems[i];
       const id = `closet_outfit_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`;
       const category = CATEGORY_MAP[detected.subcategory] || 'T-shirt';
 
@@ -124,24 +310,33 @@ export default function ResultsScreen() {
         processingStep: 'adding',
       };
 
-      addClosetItem(newItem);
-      enqueueProcessing(id, analysis.imageUri, {
-        itemDescription: `${detected.color} ${detected.subcategory}`,
-        region: detected.region,
-        detectedCategory: category,
-        detectedColor: detected.color,
-      });
+      const addResult = addClosetItem(newItem);
+      if (addResult?.added) {
+        addedCount += 1;
+        enqueueProcessing(id, analysis.imageUri, {
+          itemDescription: `${detected.color} ${detected.subcategory}`,
+          region: detected.region,
+          detectedCategory: category,
+          detectedColor: detected.color,
+        });
+      } else {
+        duplicateCount += 1;
+      }
     }
 
+    if (addedCount === 0) {
+      setItemsAddedToCloset(false);
+      showToast('Already added: all detected items are in your closet.', 'warning');
+      return;
+    }
+
+    setItemsAddedToCloset(true);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert(
-      'Added to closet',
-      `${detectedItems.length} pieces added! They'll be processed in the background.`,
-      [
-        { text: 'OK' },
-        { text: 'View Closet', onPress: () => router.replace('/(tabs)/closet' as any) },
-      ]
-    );
+    if (duplicateCount > 0) {
+      showToast(`Added ${addedCount} item(s). Skipped ${duplicateCount} duplicate(s).`, 'info');
+    } else {
+      showToast(`Added ${addedCount} item(s) to your closet.`, 'success');
+    }
   };
 
   const handleShare = async () => {
@@ -214,7 +409,7 @@ export default function ResultsScreen() {
           contentContainerStyle={s.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+          <Animated.View style={heroAnimatedStyle}>
             {/* Hero image */}
             <View style={s.heroSection}>
               <View style={[s.heroContainer, { width: heroWidth, height: heroWidth * 1.25 }]}>
@@ -224,12 +419,9 @@ export default function ResultsScreen() {
                   contentFit="cover"
                 />
                 {/* Score badge */}
-                <View style={s.scoreBadge}>
-                  <Text style={[s.scoreNumber, { color: getScoreColor(analysis.results.fitScore * 2) }]}>
-                    {(analysis.results.fitScore * 2).toFixed(1)}
-                  </Text>
-                  <Text style={s.scoreOf}>/ 10</Text>
-                </View>
+                <Animated.View style={[s.scoreBadge, scoreAnimatedStyle]}>
+                  <ScoreRing score10={analysis.results.fitScore * 2} color={getScoreColor(analysis.results.fitScore * 2)} />
+                </Animated.View>
                 {/* Vibe tag */}
                 {analysis.results.vibeTags[0] && (
                   <View style={s.vibeTag}>
@@ -241,6 +433,7 @@ export default function ResultsScreen() {
             </View>
 
             {/* Verdict card */}
+            <Animated.View style={verdictAnimatedStyle}>
             <Card style={s.verdictCard}>
               <View style={s.verdictRow}>
                 <View style={s.verdictIcon}>
@@ -251,19 +444,18 @@ export default function ResultsScreen() {
               <Text style={s.verdictText}>{verdict.text}</Text>
               {analysis.results.vibeTags.length > 1 && (
                 <View style={s.vibePills}>
-                  {analysis.results.vibeTags.map((tag: string) => (
-                    <View key={tag} style={s.vibePill}>
-                      <Text style={s.vibePillText}>{tag}</Text>
-                    </View>
+                  {analysis.results.vibeTags.map((tag: string, i: number) => (
+                    <VibePill key={tag} tag={tag} index={i} reduceMotion={reduceMotion} />
                   ))}
                 </View>
               )}
             </Card>
+            </Animated.View>
 
             {/* Improvement suggestions */}
             {analysis.results.quickFixes && analysis.results.quickFixes.length > 0 && (
               <Card style={s.improveCard}>
-                <Text style={s.sectionHeader}>Let's polish it a bit</Text>
+                <Text style={s.sectionHeader}>Let&apos;s polish it a bit</Text>
                 {analysis.results.quickFixes.slice(0, 3).map((fix: string, i: number) => (
                   <View key={i} style={s.tryThisCard}>
                     <View style={s.tryThisNumber}>
@@ -304,7 +496,7 @@ export default function ResultsScreen() {
                 {analysis.results.detectedClothingItems.some((item: any) => item.visibility !== 'visible') && (
                   <View style={s.notVisibleCard}>
                     <Text style={s.notVisibleText}>
-                      Some pieces weren't visible in the photo
+                      Some pieces weren&apos;t visible in the photo
                     </Text>
                   </View>
                 )}
@@ -312,6 +504,7 @@ export default function ResultsScreen() {
             )}
 
             {/* Generate alternatives */}
+            <PressableScale haptic activeScale={0.98}>
             <Card style={s.alternativeCard} variant="flat">
               <View style={s.alternativeContent}>
                 <View style={s.alternativeIcon}>
@@ -324,6 +517,7 @@ export default function ResultsScreen() {
                 <ArrowRight size={18} color={palette.inkMuted} />
               </View>
             </Card>
+            </PressableScale>
 
             <View style={{ height: space.xxl }} />
           </Animated.View>
@@ -331,24 +525,20 @@ export default function ResultsScreen() {
 
         {/* Bottom actions */}
         <View style={s.bottomBar}>
-          <TouchableOpacity
-            style={[s.bottomBtn, s.bottomBtnOutline]}
-            onPress={handleShare}
-            activeOpacity={0.85}
-          >
+          <PressableScale haptic onPress={handleShare} style={{ flex: 1 }}>
+          <View style={[s.bottomBtn, s.bottomBtnOutline]}>
             <Text style={s.bottomBtnText}>Share</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[s.bottomBtn, s.bottomBtnFill]}
-            onPress={handleAddToCloset}
-            disabled={itemsAddedToCloset}
-            activeOpacity={0.85}
-          >
+          </View>
+          </PressableScale>
+          <PressableScale haptic onPress={handleAddToCloset} disabled={itemsAddedToCloset} style={{ flex: 1 }}>
+          <View style={[s.bottomBtn, s.bottomBtnFill, itemsAddedToCloset && s.bottomBtnDisabled]}>
             <Text style={[s.bottomBtnText, { color: palette.white }]}>
               {itemsAddedToCloset ? 'Added' : 'Add items to closet'}
             </Text>
-          </TouchableOpacity>
+          </View>
+          </PressableScale>
         </View>
+        <Toast visible={toastVisible} message={toastMessage} tone={toastTone} />
       </SafeAreaView>
     </View>
   );
@@ -396,12 +586,21 @@ const s = StyleSheet.create({
   heroImage: { width: '100%', height: '100%' },
   scoreBadge: {
     position: 'absolute', top: 14, right: 14,
-    flexDirection: 'row', alignItems: 'baseline',
-    backgroundColor: palette.white, borderRadius: radius.md,
-    paddingHorizontal: 14, paddingVertical: 8, ...shadow.soft,
+    ...shadow.soft,
+  },
+  ringWrap: { width: 86, height: 86, alignItems: 'center', justifyContent: 'center' },
+  ringCenter: {
+    position: 'absolute',
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: palette.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadow.soft,
   },
   scoreNumber: { fontSize: 26, fontWeight: '700' },
-  scoreOf: { ...typo.caption, color: palette.inkMuted, marginLeft: 3 },
+  scoreOf: { ...typo.caption, color: palette.inkMuted, marginLeft: 0 },
   vibeTag: {
     position: 'absolute', bottom: 14, left: 14,
     flexDirection: 'row', alignItems: 'center', gap: 5,
@@ -488,5 +687,6 @@ const s = StyleSheet.create({
   },
   bottomBtnOutline: { backgroundColor: palette.white, borderWidth: 1.5, borderColor: palette.borderLight },
   bottomBtnFill: { backgroundColor: palette.accent },
+  bottomBtnDisabled: { opacity: 0.5 },
   bottomBtnText: { ...typo.button, color: palette.ink },
 });

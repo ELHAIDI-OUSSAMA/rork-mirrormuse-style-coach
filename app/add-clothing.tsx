@@ -23,6 +23,7 @@ import { useApp } from '@/contexts/AppContext';
 import { ClosetItem } from '@/types';
 import { enqueueProcessing } from '@/lib/processingQueue';
 import { classifyPhotoType, detectItemsInOutfitImage } from '@/utils/closetExtraction';
+import { Toast } from '@/components/Toast';
 
 const { width } = Dimensions.get('window');
 
@@ -38,6 +39,16 @@ export default function AddClothingScreen() {
   const router = useRouter();
   const { addClosetItem, themeColors, preferences } = useApp();
   const [busy, setBusy] = useState(false);
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastTone, setToastTone] = useState<'info' | 'success' | 'warning'>('info');
+
+  const showToast = (message: string, tone: 'info' | 'success' | 'warning' = 'info') => {
+    setToastMessage(message);
+    setToastTone(tone);
+    setToastVisible(true);
+    setTimeout(() => setToastVisible(false), 2200);
+  };
 
   const pickImage = async (source: 'camera' | 'gallery') => {
     if (busy) return;
@@ -102,7 +113,13 @@ export default function AddClothingScreen() {
       processingStep: 'adding',
     };
 
-    addClosetItem(newItem);
+    const result = addClosetItem(newItem);
+    if (!result?.added) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      showToast('Already added: this item is already in your closet.', 'warning');
+      return;
+    }
+
     enqueueProcessing(id, imageUri);
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -119,15 +136,25 @@ export default function AddClothingScreen() {
 
   const handleOutfitPhoto = async (imageUri: string) => {
     const detectedItems = await detectItemsInOutfitImage(imageUri);
-    console.log('[AddClothing] Detected items:', detectedItems.length);
+    const seen = new Set<string>();
+    const dedupedItems = detectedItems.filter((item: any) => {
+      const key = `${(item.region || '').toLowerCase()}|${(item.subcategory || '').toLowerCase()}|${(item.color || '').toLowerCase()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    console.log('[AddClothing] Detected items:', detectedItems.length, 'deduped:', dedupedItems.length);
 
-    if (detectedItems.length === 0) {
+    if (dedupedItems.length === 0) {
       instantAddSingleItem(imageUri);
       return;
     }
 
-    for (let i = 0; i < detectedItems.length; i++) {
-      const detected = detectedItems[i];
+    let addedCount = 0;
+    let duplicateCount = 0;
+
+    for (let i = 0; i < dedupedItems.length; i++) {
+      const detected = dedupedItems[i];
       const id = `closet_outfit_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`;
       const category = CATEGORY_MAP[detected.subcategory] || 'T-shirt';
 
@@ -152,16 +179,27 @@ export default function AddClothingScreen() {
         processingStep: 'adding',
       };
 
-      addClosetItem(newItem);
-      enqueueProcessing(id, imageUri, {
-        itemDescription: `${detected.color} ${detected.subcategory}`,
-        region: detected.region,
-        detectedCategory: category,
-        detectedColor: detected.color,
-      });
+      const result = addClosetItem(newItem);
+      if (result?.added) {
+        addedCount += 1;
+        enqueueProcessing(id, imageUri, {
+          itemDescription: `${detected.color} ${detected.subcategory}`,
+          region: detected.region,
+          detectedCategory: category,
+          detectedColor: detected.color,
+        });
+      } else {
+        duplicateCount += 1;
+      }
     }
 
-    console.log(`[AddClothing] Instantly added ${detectedItems.length} outfit items to closet`);
+    if (addedCount === 0) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      showToast('Already added: all detected pieces are already in your closet.', 'warning');
+      return;
+    }
+
+    console.log(`[AddClothing] Instantly added ${addedCount} outfit items to closet (${duplicateCount} duplicates skipped)`);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     router.replace('/(tabs)/closet' as any);
   };
@@ -233,6 +271,7 @@ export default function AddClothingScreen() {
           </View>
         </View>
       </SafeAreaView>
+      <Toast visible={toastVisible} message={toastMessage} tone={toastTone} />
     </View>
   );
 }

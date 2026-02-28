@@ -402,37 +402,38 @@ export function generateMockAnalysis(
   vibe: StyleVibe,
   occasion: Occasion,
   budget: string,
-  closetItems?: { category: string; color: string }[]
+  closetItems?: { category: string; color: string }[],
+  options?: {
+    seed?: string;
+    detectedClothingItems?: DetectedClothingItem[];
+  }
 ): AnalysisResult {
-  const fitScore = Math.floor(Math.random() * 3) + 3;
-  
-  const allDetectedItems = clothingDetectionTemplates[
-    Math.floor(Math.random() * clothingDetectionTemplates.length)
+  const seed = options?.seed || `${vibe}-${occasion}-${budget}`;
+  const random = createSeededRandom(seed);
+
+  const fallbackTemplate = clothingDetectionTemplates[
+    Math.floor(random() * clothingDetectionTemplates.length)
   ];
 
-  const feetVisible = Math.random() > 0.3;
-  const outerwearVisible = Math.random() > 0.4;
-  const accessoriesVisible = Math.random() > 0.6;
+  const feetVisible = random() > 0.3;
+  const outerwearVisible = random() > 0.4;
+  const accessoriesVisible = random() > 0.6;
 
-  const detectedClothingItems = allDetectedItems.filter(item => {
-    if (item.region === 'feet' && !feetVisible) {
-      return false;
-    }
-    if (item.region === 'upper_outer' && !outerwearVisible) {
-      return false;
-    }
-    if (item.region === 'accessory' && !accessoriesVisible) {
-      return false;
-    }
-    
-    if (item.visibility === 'visible' && item.confidence >= 0.70) {
-      return true;
-    }
-    if (item.visibility === 'partial' && item.confidence >= 0.80) {
-      return true;
-    }
+  const fallbackDetectedItems = fallbackTemplate.filter(item => {
+    if (item.region === 'feet' && !feetVisible) return false;
+    if (item.region === 'upper_outer' && !outerwearVisible) return false;
+    if (item.region === 'accessory' && !accessoriesVisible) return false;
+    if (item.visibility === 'visible' && item.confidence >= 0.70) return true;
+    if (item.visibility === 'partial' && item.confidence >= 0.80) return true;
     return false;
   });
+
+  const detectedClothingItems =
+    options?.detectedClothingItems && options.detectedClothingItems.length > 0
+      ? options.detectedClothingItems
+      : fallbackDetectedItems;
+
+  const fitScore = calculateDeterministicFitScore(detectedClothingItems, random);
 
   let closetRecommendations: string[] = [];
   if (closetItems && closetItems.length > 0) {
@@ -450,19 +451,72 @@ export function generateMockAnalysis(
   }
 
   return {
-    summary: summaries[Math.floor(Math.random() * summaries.length)],
+    summary: summaries[Math.floor(random() * summaries.length)],
     fitScore,
     vibeTags: vibeTags[occasion] || ['Stylish', 'Balanced', 'Intentional'],
     quickFixes: quickFixesByVibe[vibe] || quickFixesByVibe['Minimal'],
     upgrades: upgradesByBudget[budget] || upgradesByBudget['$$'],
-    alternativeLooks: alternativeLooks.slice(0, 2 + Math.floor(Math.random() * 2)),
+    alternativeLooks: alternativeLooks.slice(0, 2 + Math.floor(random() * 2)),
     avoid: avoidItems.slice(0, 2),
-    confidenceNote: fitScore >= 4 
-      ? "I can see your full outfit clearly - these suggestions are spot on!" 
-      : "The lighting made some details hard to see, but I've done my best!",
+    confidenceNote: fitScore >= 4
+      ? "I can see your full outfit clearly - these suggestions are spot on!"
+      : "Some details were harder to read, so confidence is moderate.",
     detectedClothingItems,
     closetRecommendations,
   };
+}
+
+function hashString(value: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function createSeededRandom(seedInput: string): () => number {
+  let seed = hashString(seedInput || 'default-seed');
+  return () => {
+    seed += 0x6d2b79f5;
+    let t = seed;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function calculateDeterministicFitScore(
+  detectedItems: DetectedClothingItem[],
+  random: () => number
+): number {
+  if (!detectedItems || detectedItems.length === 0) {
+    return 3;
+  }
+
+  const considered = detectedItems.filter(item => item.visibility !== 'not_visible');
+  const avgConfidence = considered.length
+    ? considered.reduce((sum, item) => sum + item.confidence, 0) / considered.length
+    : 0.65;
+
+  const coreRegions = ['upper_inner', 'upper_outer', 'lower', 'feet'];
+  const visibleCoreRegions = new Set(
+    considered
+      .filter(item => coreRegions.includes(item.region))
+      .map(item => item.region)
+  );
+
+  const coreCoverageScore = clamp(visibleCoreRegions.size / 3, 0, 1);
+  const itemCountScore = clamp(considered.length / 4, 0, 1);
+  const qualityScore = (avgConfidence * 0.55) + (coreCoverageScore * 0.25) + (itemCountScore * 0.2);
+  const deterministicJitter = (random() - 0.5) * 0.3;
+  const score = 2.6 + (qualityScore * 2.2) + deterministicJitter;
+
+  return Number(clamp(score, 1, 5).toFixed(1));
 }
 
 export const loadingTips = [
@@ -551,55 +605,83 @@ export function generatePlannedOutfit(
   );
 
   const selectedItems: PlannedOutfitItem[] = [];
+  const selectedIds = new Set<string>();
 
-  if (tops.length > 0) {
-    const top = tops[Math.floor(Math.random() * tops.length)];
+  const pickRandomItem = (items: ClosetItem[]): ClosetItem | null => {
+    if (!items.length) return null;
+    const available = items.filter(item => !selectedIds.has(item.id));
+    if (!available.length) return null;
+    return available[Math.floor(Math.random() * available.length)];
+  };
+
+  const addItem = (item: ClosetItem | null) => {
+    if (!item || selectedIds.has(item.id)) return;
+    selectedIds.add(item.id);
     selectedItems.push({
-      closetItemId: top.id,
-      category: top.category,
-      color: top.color,
-      imageUri: top.imageUri,
+      closetItemId: item.id,
+      category: item.category,
+      color: item.color,
+      imageUri: item.imageUri,
     });
+  };
+
+  const temp = weather?.temperature;
+  const rain = weather?.rainProbability ?? 0;
+  const isVeryCold = typeof temp === 'number' && temp <= 8;
+  const isCold = typeof temp === 'number' && temp < 15;
+  const isMild = typeof temp === 'number' && temp >= 15 && temp <= 24;
+  const isHot = typeof temp === 'number' && temp >= 25;
+  const isRainy = rain >= 45;
+
+  const warmTops = tops.filter(i => ['Hoodie', 'Sweater'].includes(i.category));
+  const lightTops = tops.filter(i => ['T-shirt', 'Shirt'].includes(i.category));
+  const practicalBottoms = bottoms.filter(i => ['Jeans', 'Pants'].includes(i.category));
+  const lightBottoms = bottoms.filter(i => ['Shorts', 'Skirt'].includes(i.category));
+  const boots = shoes.filter(i => i.category === 'Boots');
+  const sneakers = shoes.filter(i => i.category === 'Sneakers');
+  const classicShoes = shoes.filter(i => i.category === 'Shoes');
+  const rainOuterwear = outerwear.filter(i => ['Jacket', 'Coat'].includes(i.category));
+  const bags = accessories.filter(i => i.category === 'Bag');
+
+  if (isVeryCold && warmTops.length > 0) {
+    addItem(pickRandomItem(warmTops));
+  } else if (isHot && lightTops.length > 0) {
+    addItem(pickRandomItem(lightTops));
+  } else {
+    addItem(pickRandomItem(tops));
   }
 
-  if (bottoms.length > 0) {
-    const bottom = bottoms[Math.floor(Math.random() * bottoms.length)];
-    selectedItems.push({
-      closetItemId: bottom.id,
-      category: bottom.category,
-      color: bottom.color,
-      imageUri: bottom.imageUri,
-    });
+  if ((isCold || isRainy) && practicalBottoms.length > 0) {
+    addItem(pickRandomItem(practicalBottoms));
+  } else if (isHot && !isRainy && lightBottoms.length > 0) {
+    addItem(pickRandomItem(lightBottoms));
+  } else {
+    addItem(pickRandomItem(bottoms));
   }
 
-  if (weather && weather.temperature < 15 && outerwear.length > 0) {
-    const outer = outerwear[Math.floor(Math.random() * outerwear.length)];
-    selectedItems.push({
-      closetItemId: outer.id,
-      category: outer.category,
-      color: outer.color,
-      imageUri: outer.imageUri,
-    });
+  const shouldLayerOuterwear =
+    isVeryCold ||
+    isCold ||
+    (isRainy && rainOuterwear.length > 0) ||
+    (isMild && rain >= 65);
+
+  if (shouldLayerOuterwear && outerwear.length > 0) {
+    addItem(pickRandomItem(isRainy ? rainOuterwear : outerwear));
   }
 
-  if (shoes.length > 0) {
-    const shoe = shoes[Math.floor(Math.random() * shoes.length)];
-    selectedItems.push({
-      closetItemId: shoe.id,
-      category: shoe.category,
-      color: shoe.color,
-      imageUri: shoe.imageUri,
-    });
+  if (isRainy) {
+    addItem(pickRandomItem(boots.length ? boots : sneakers.length ? sneakers : shoes));
+  } else if (isCold) {
+    addItem(pickRandomItem(boots.length ? boots : sneakers.length ? sneakers : shoes));
+  } else if (isHot) {
+    addItem(pickRandomItem(classicShoes.length ? classicShoes : sneakers.length ? sneakers : shoes));
+  } else {
+    addItem(pickRandomItem(shoes));
   }
 
-  if (accessories.length > 0 && Math.random() > 0.5) {
-    const accessory = accessories[Math.floor(Math.random() * accessories.length)];
-    selectedItems.push({
-      closetItemId: accessory.id,
-      category: accessory.category,
-      color: accessory.color,
-      imageUri: accessory.imageUri,
-    });
+  const accessoryChance = isRainy ? 0.25 : isCold ? 0.65 : 0.5;
+  if (accessories.length > 0 && Math.random() < accessoryChance) {
+    addItem(pickRandomItem(isRainy && bags.length > 0 ? bags : accessories));
   }
 
   if (selectedItems.length < 2) {
@@ -607,12 +689,7 @@ export function generatePlannedOutfit(
     const needed = Math.min(2 - selectedItems.length, remaining.length);
     for (let i = 0; i < needed; i++) {
       const item = remaining[i];
-      selectedItems.push({
-        closetItemId: item.id,
-        category: item.category,
-        color: item.color,
-        imageUri: item.imageUri,
-      });
+      addItem(item);
     }
   }
 
@@ -621,12 +698,16 @@ export function generatePlannedOutfit(
 
   let weatherNote = '';
   if (weather) {
-    if (weather.temperature < 10) {
-      weatherNote = ` Perfect for the ${weather.temperature}°C weather - you'll stay warm!`;
-    } else if (weather.temperature > 25) {
-      weatherNote = ` Light and breathable for the ${weather.temperature}°C heat.`;
-    } else if (weather.rainProbability > 50) {
-      weatherNote = ` Consider grabbing an umbrella - ${weather.rainProbability}% chance of rain.`;
+    if (isVeryCold) {
+      weatherNote = ` Built with extra layering for ${weather.temperature}°C weather.`;
+    } else if (isCold) {
+      weatherNote = ` Added warmer pieces to keep you comfortable at ${weather.temperature}°C.`;
+    } else if (isHot) {
+      weatherNote = ` Kept the look breathable for ${weather.temperature}°C heat.`;
+    }
+
+    if (isRainy) {
+      weatherNote += ` Rain-aware picks included for a ${weather.rainProbability}% rain chance.`;
     }
   }
 

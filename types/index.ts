@@ -181,7 +181,7 @@ export interface SavedInspiration {
   inspirationId: string;
   imageUrl: string;
   thumbnailUrl: string;
-  source: 'pexels' | 'unsplash';
+  source: 'pexels' | 'unsplash' | 'pinterest' | 'fallback';
   author: string;
   styleTags: string[];
   savedAt: string;
@@ -194,6 +194,8 @@ export interface WeatherSnapshot {
   date: string;
   location?: string;
 }
+
+export * from './inspiration';
 
 export interface PlannedOutfitItem {
   closetItemId: string;
@@ -385,3 +387,5 @@ export const CLOTHING_CATEGORIES: ClothingCategory[] = [
 export const MODESTY_LEVELS: ModestyLevel[] = ['Low', 'Medium', 'High'];
 export const BUDGET_LEVELS: BudgetLevel[] = ['$', '$$', '$$$'];
 export const TONE_PREFERENCES: TonePreference[] = ['Gentle', 'Blunt'];
+
+export * from './gamification';

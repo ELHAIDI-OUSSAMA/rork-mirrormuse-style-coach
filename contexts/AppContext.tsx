@@ -1,6 +1,7 @@
 import createContextHook from '@nkzw/create-context-hook';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import * as Haptics from 'expo-haptics';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   UserPreferences,
@@ -23,9 +24,28 @@ import {
   SavedPinterestPin,
   SavedInspiration,
   InspirationItem,
+  GamificationState,
+  WardrobeCoverageMap,
+  InspirationCard,
+  SwipeAction,
+  SwipeEvent,
+  InspirationCalibration,
+  InspirationPersistentState,
+  DEFAULT_INSPIRE_CALIBRATION,
+  DEFAULT_INSPIRE_STATE,
 } from '@/types';
 import { getColorsForGender, ColorTheme } from '@/constants/colors';
 import { setQueueUpdater, resumePendingItems } from '@/lib/processingQueue';
+import {
+  BADGE_DEFINITIONS,
+  DEFAULT_GAMIFICATION_STATE,
+  GAMIFICATION_STORAGE_KEY,
+  buildWardrobeCoverageMap,
+  normalizeGamificationState,
+  onClosetItemsAdded as awardClosetItemsAdded,
+  onOutfitCheckCompleted as awardOutfitCheckCompleted,
+  onOutfitSaved as awardOutfitSaved,
+} from '@/utils/gamification';
 
 const PREFERENCES_KEY = 'mirrormuse_preferences';
 const LOOKS_KEY = 'mirrormuse_looks';
@@ -39,6 +59,8 @@ const RECREATED_OUTFITS_KEY = 'mirrormuse_recreated';
 const COMPOSED_OUTFITS_KEY = 'mirrormuse_composed_outfits';
 const SAVED_PINS_KEY = 'mirrormuse_saved_pins';
 const SAVED_INSPO_V2_KEY = 'mirrormuse_saved_inspo_v2';
+const INSPIRE_STATE_KEY = 'mirrormuse_inspire_state_v1';
+const INSPIRE_SWIPES_KEY = 'mirrormuse_inspire_swipes_v1';
 
 const defaultPreferences: UserPreferences = {
   gender: undefined,
@@ -72,11 +94,55 @@ export const [AppProvider, useApp] = createContextHook(() => {
   const [composedOutfits, setComposedOutfits] = useState<ComposedOutfit[]>([]);
   const [savedPins, setSavedPins] = useState<SavedPinterestPin[]>([]);
   const [savedInspirationItems, setSavedInspirationItems] = useState<SavedInspiration[]>([]);
+  const [inspirationGender, setInspirationGender] = useState<'men' | 'women'>(DEFAULT_INSPIRE_STATE.gender);
+  const [inspirationQueue, setInspirationQueue] = useState<InspirationCard[]>([]);
+  const [inspirationSwipes, setInspirationSwipes] = useState<SwipeEvent[]>([]);
+  const [inspirationLikes, setInspirationLikes] = useState<string[]>([]);
+  const [inspirationSaves, setInspirationSaves] = useState<string[]>([]);
+  const [inspirationCalibration, setInspirationCalibration] = useState<InspirationCalibration>(DEFAULT_INSPIRE_CALIBRATION);
+  const [inspirationTagWeights, setInspirationTagWeights] = useState<Record<string, number>>({});
+  const [inspirationLastFetchTs, setInspirationLastFetchTs] = useState<string | null>(null);
+  const [isInspireHydrated, setIsInspireHydrated] = useState(false);
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(defaultNotificationSettings);
   const [creatorSettings, setCreatorSettings] = useState<CreatorSettings>(defaultCreatorSettings);
   const [currentWeather, setCurrentWeather] = useState<WeatherSnapshot | null>(null);
+  const [gamificationState, setGamificationState] = useState<GamificationState>(DEFAULT_GAMIFICATION_STATE);
   const [isGuest, setIsGuest] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
+
+  const persistGamification = useCallback(async (nextState: GamificationState) => {
+    try {
+      await AsyncStorage.setItem(GAMIFICATION_STORAGE_KEY, JSON.stringify(nextState));
+    } catch (error) {
+      console.log('[Gamification] Failed to persist state:', error);
+    }
+  }, []);
+
+  const trimTagWeights = useCallback((weights: Record<string, number>) => {
+    return Object.entries(weights)
+      .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+      .slice(0, 20)
+      .reduce<Record<string, number>>((acc, [key, value]) => {
+        acc[key] = Math.round(value * 100) / 100;
+        return acc;
+      }, {});
+  }, []);
+
+  const persistInspireState = useCallback(async (state: InspirationPersistentState) => {
+    try {
+      await AsyncStorage.setItem(INSPIRE_STATE_KEY, JSON.stringify(state));
+    } catch (error) {
+      console.log('[Inspire] Failed to persist state:', error);
+    }
+  }, []);
+
+  const persistInspireSwipes = useCallback(async (swipes: SwipeEvent[]) => {
+    try {
+      await AsyncStorage.setItem(INSPIRE_SWIPES_KEY, JSON.stringify(swipes.slice(0, 200)));
+    } catch (error) {
+      console.log('[Inspire] Failed to persist swipes:', error);
+    }
+  }, []);
 
   const preferencesQuery = useQuery({
     queryKey: ['preferences'],
@@ -169,6 +235,12 @@ export const [AppProvider, useApp] = createContextHook(() => {
   }, [preferencesQuery.data]);
 
   useEffect(() => {
+    if (inspirationSwipes.length > 0 || inspirationLikes.length > 0 || inspirationSaves.length > 0) return;
+    if (preferences.gender === 'male') setInspirationGender('men');
+    if (preferences.gender === 'female') setInspirationGender('women');
+  }, [preferences.gender, inspirationSwipes.length, inspirationLikes.length, inspirationSaves.length]);
+
+  useEffect(() => {
     if (looksQuery.data) {
       setSavedLooks(looksQuery.data);
     }
@@ -252,6 +324,120 @@ export const [AppProvider, useApp] = createContextHook(() => {
     }
   }, [userQuery.data]);
 
+  useEffect(() => {
+    let mounted = true;
+    let pending = 2;
+    const finish = () => {
+      pending -= 1;
+      if (mounted && pending <= 0) {
+        setIsInspireHydrated(true);
+      }
+    };
+    AsyncStorage.getItem(INSPIRE_STATE_KEY)
+      .then((stored) => {
+        if (!mounted || !stored) return;
+        try {
+          const parsed = JSON.parse(stored) as Partial<InspirationPersistentState>;
+          setInspirationGender(parsed.gender === 'men' ? 'men' : parsed.gender === 'women' ? 'women' : DEFAULT_INSPIRE_STATE.gender);
+          setInspirationLikes(Array.isArray(parsed.likes) ? parsed.likes.slice(0, 400) : []);
+          setInspirationSaves(Array.isArray(parsed.saves) ? parsed.saves.slice(0, 400) : []);
+          const tagWeights = (parsed.tagWeights && typeof parsed.tagWeights === 'object') ? parsed.tagWeights : {};
+          setInspirationTagWeights(trimTagWeights(tagWeights));
+          setInspirationCalibration({
+            isCalibrated: !!parsed.isCalibrated,
+            swipesToCalibrate: typeof parsed.swipesToCalibrate === 'number' ? parsed.swipesToCalibrate : 20,
+            progress: typeof parsed.progress === 'number' ? parsed.progress : 0,
+          });
+          setInspirationLastFetchTs(typeof parsed.lastFetchTs === 'string' ? parsed.lastFetchTs : null);
+        } catch (error) {
+          console.log('[Inspire] Failed to parse persisted state:', error);
+        }
+      })
+      .catch((error) => {
+        console.log('[Inspire] Failed to load state:', error);
+      })
+      .finally(finish);
+
+    AsyncStorage.getItem(INSPIRE_SWIPES_KEY)
+      .then((stored) => {
+        if (!mounted || !stored) return;
+        try {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            setInspirationSwipes(parsed.slice(0, 200));
+          }
+        } catch (error) {
+          console.log('[Inspire] Failed to parse swipes:', error);
+        }
+      })
+      .catch((error) => {
+        console.log('[Inspire] Failed to load swipes:', error);
+      })
+      .finally(finish);
+
+    return () => {
+      mounted = false;
+    };
+  }, [trimTagWeights]);
+
+  useEffect(() => {
+    if (!isInspireHydrated) return;
+    const nextState: InspirationPersistentState = {
+      gender: inspirationGender,
+      likes: inspirationLikes.slice(0, 400),
+      saves: inspirationSaves.slice(0, 400),
+      tagWeights: trimTagWeights(inspirationTagWeights),
+      isCalibrated: inspirationCalibration.isCalibrated,
+      swipesToCalibrate: inspirationCalibration.swipesToCalibrate,
+      progress: inspirationCalibration.progress,
+      lastFetchTs: inspirationLastFetchTs,
+    };
+    persistInspireState(nextState);
+  }, [
+    inspirationCalibration.isCalibrated,
+    inspirationCalibration.progress,
+    inspirationCalibration.swipesToCalibrate,
+    inspirationGender,
+    inspirationLastFetchTs,
+    inspirationLikes,
+    inspirationSaves,
+    inspirationTagWeights,
+    isInspireHydrated,
+    persistInspireState,
+    trimTagWeights,
+  ]);
+
+  useEffect(() => {
+    if (!isInspireHydrated) return;
+    persistInspireSwipes(inspirationSwipes);
+  }, [inspirationSwipes, isInspireHydrated, persistInspireSwipes]);
+
+  useEffect(() => {
+    let mounted = true;
+    AsyncStorage.getItem(GAMIFICATION_STORAGE_KEY)
+      .then((stored) => {
+        if (!mounted) return;
+        if (!stored) {
+          setGamificationState(DEFAULT_GAMIFICATION_STATE);
+          return;
+        }
+        try {
+          const parsed = JSON.parse(stored);
+          setGamificationState(normalizeGamificationState(parsed));
+        } catch (error) {
+          console.log('[Gamification] Failed to parse state:', error);
+          setGamificationState(DEFAULT_GAMIFICATION_STATE);
+        }
+      })
+      .catch((error) => {
+        console.log('[Gamification] Failed to load state:', error);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const savePreferencesMutation = useMutation({
     mutationFn: async (newPrefs: UserPreferences) => {
       await AsyncStorage.setItem(PREFERENCES_KEY, JSON.stringify(newPrefs));
@@ -271,17 +457,6 @@ export const [AppProvider, useApp] = createContextHook(() => {
     onSuccess: (data) => {
       setSavedLooks(data);
       queryClient.invalidateQueries({ queryKey: ['savedLooks'] });
-    },
-  });
-
-  const saveClosetMutation = useMutation({
-    mutationFn: async (items: ClosetItem[]) => {
-      await AsyncStorage.setItem(CLOSET_KEY, JSON.stringify(items));
-      return items;
-    },
-    onSuccess: (data) => {
-      setClosetItems(data);
-      queryClient.invalidateQueries({ queryKey: ['closet'] });
     },
   });
 
@@ -364,7 +539,6 @@ export const [AppProvider, useApp] = createContextHook(() => {
 
   const { mutate: mutatePreferences } = savePreferencesMutation;
   const { mutate: mutateLooks } = saveLooksMutation;
-  const { mutate: mutateCloset } = saveClosetMutation;
   const { mutate: mutateInspiration } = saveInspirationMutation;
   const { mutate: mutatePlannedOutfits } = savePlannedOutfitsMutation;
   const { mutate: mutateNotificationSettings } = saveNotificationSettingsMutation;
@@ -432,6 +606,50 @@ export const [AppProvider, useApp] = createContextHook(() => {
     updatePreferences({ onboardingComplete: true });
   }, [updatePreferences]);
 
+  const onOutfitCheckCompleted = useCallback((score10: number, analysisId?: string) => {
+    setGamificationState((prev) => {
+      const result = awardOutfitCheckCompleted(prev, score10, analysisId);
+      const next = normalizeGamificationState(result.next);
+      persistGamification(next);
+      if (result.leveledUp) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } else if (result.newBadges.length > 0) {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+      return next;
+    });
+  }, [persistGamification]);
+
+  const onClosetItemsAdded = useCallback((count: number) => {
+    if (count <= 0) return;
+    setGamificationState((prev) => {
+      const result = awardClosetItemsAdded(prev, count);
+      const next = normalizeGamificationState(result.next);
+      persistGamification(next);
+      if (result.leveledUp) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+      return next;
+    });
+  }, [persistGamification]);
+
+  const onOutfitSaved = useCallback(() => {
+    setGamificationState((prev) => {
+      const result = awardOutfitSaved(prev);
+      const next = normalizeGamificationState(result.next);
+      persistGamification(next);
+      if (result.leveledUp) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+      return next;
+    });
+  }, [persistGamification]);
+
+  const resetGamification = useCallback(() => {
+    setGamificationState(DEFAULT_GAMIFICATION_STATE);
+    persistGamification(DEFAULT_GAMIFICATION_STATE);
+  }, [persistGamification]);
+
   const addLook = useCallback((look: LookAnalysis) => {
     const updated = [look, ...savedLooks];
     mutateLooks(updated);
@@ -451,23 +669,75 @@ export const [AppProvider, useApp] = createContextHook(() => {
     AsyncStorage.setItem(CLOSET_KEY, JSON.stringify(items));
   }, [queryClient]);
 
+  const normalizeText = (value?: string) => (value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+  const isDuplicateClosetItem = useCallback((existing: ClosetItem, incoming: ClosetItem) => {
+    if (existing.id === incoming.id) return true;
+
+    const sameImage = normalizeText(existing.imageUri) !== '' &&
+      normalizeText(existing.imageUri) === normalizeText(incoming.imageUri);
+
+    const sameCategory = normalizeText(existing.category) === normalizeText(incoming.category);
+    const sameColor = normalizeText(existing.color) === normalizeText(incoming.color);
+    const sameSticker = existing.stickerPngUri &&
+      incoming.stickerPngUri &&
+      normalizeText(existing.stickerPngUri) === normalizeText(incoming.stickerPngUri);
+
+    if (sameSticker) return true;
+    if (sameImage && incoming.source === 'manual') return true;
+    if (sameImage && sameCategory && sameColor) return true;
+    return false;
+  }, []);
+
   const addClosetItem = useCallback((item: ClosetItem) => {
     const itemWithUsage = { ...item, usageCount: item.usageCount ?? 0 };
-    setClosetItems(prev => {
+    let result: { added: boolean; duplicate: boolean } = { added: false, duplicate: true };
+
+    setClosetItems((prev) => {
+      const duplicate = prev.some((existing) => isDuplicateClosetItem(existing, itemWithUsage));
+      if (duplicate) {
+        result = { added: false, duplicate: true };
+        return prev;
+      }
+
       const updated = [itemWithUsage, ...prev];
+      result = { added: true, duplicate: false };
       persistCloset(updated);
       return updated;
     });
-  }, [persistCloset]);
+
+    if (result.added) {
+      onClosetItemsAdded(1);
+    }
+    return result;
+  }, [isDuplicateClosetItem, onClosetItemsAdded, persistCloset]);
 
   const addClosetItems = useCallback((items: ClosetItem[]) => {
     const itemsWithUsage = items.map(i => ({ ...i, usageCount: i.usageCount ?? 0 }));
-    setClosetItems(prev => {
-      const updated = [...itemsWithUsage, ...prev];
-      persistCloset(updated);
-      return updated;
+    let added = 0;
+    let skipped = 0;
+
+    setClosetItems((prev) => {
+      const next = [...prev];
+      for (const item of itemsWithUsage) {
+        const duplicate = next.some((existing) => isDuplicateClosetItem(existing, item));
+        if (duplicate) {
+          skipped += 1;
+          continue;
+        }
+        next.unshift(item);
+        added += 1;
+      }
+      if (added > 0) {
+        persistCloset(next);
+      }
+      return next;
     });
-  }, [persistCloset]);
+
+    if (added > 0) onClosetItemsAdded(added);
+
+    return { added, skipped };
+  }, [isDuplicateClosetItem, onClosetItemsAdded, persistCloset]);
 
   const removeClosetItem = useCallback((itemId: string) => {
     setClosetItems(prev => {
@@ -578,6 +848,128 @@ export const [AppProvider, useApp] = createContextHook(() => {
     return savedInspirationItems.some(s => s.inspirationId === inspirationId);
   }, [savedInspirationItems]);
 
+  const setInspirationGenderPreference = useCallback((gender: 'men' | 'women') => {
+    setInspirationGender(gender);
+    setInspirationQueue([]);
+    setInspirationLastFetchTs(new Date().toISOString());
+  }, []);
+
+  const setInspirationFeedQueue = useCallback((cards: InspirationCard[]) => {
+    setInspirationQueue(cards);
+    setInspirationLastFetchTs(new Date().toISOString());
+  }, []);
+
+  const appendInspirationFeedQueue = useCallback((cards: InspirationCard[]) => {
+    if (cards.length === 0) return;
+    setInspirationQueue((prev) => {
+      const seen = new Set(prev.map((item) => item.id));
+      const merged = [...prev];
+      for (const card of cards) {
+        if (!seen.has(card.id)) {
+          merged.push(card);
+          seen.add(card.id);
+        }
+      }
+      return merged;
+    });
+    setInspirationLastFetchTs(new Date().toISOString());
+  }, []);
+
+  const ensureInspirationSavedItem = useCallback((card: InspirationCard) => {
+    const exists = savedInspirationItems.some((item) => item.inspirationId === card.id);
+    if (exists) return;
+    const entry: SavedInspiration = {
+      id: `inspo-${Date.now()}-${card.id}`,
+      inspirationId: card.id,
+      imageUrl: card.imageUrl,
+      thumbnailUrl: card.imageUrl,
+      source: card.source,
+      author: card.title || 'MirrorMuse',
+      styleTags: card.tags || [],
+      savedAt: new Date().toISOString(),
+    };
+    mutateInspoV2([entry, ...savedInspirationItems]);
+  }, [mutateInspoV2, savedInspirationItems]);
+
+  const toggleInspirationSaved = useCallback((card: InspirationCard) => {
+    setInspirationSaves((prev) => {
+      const exists = prev.includes(card.id);
+      if (exists) {
+        return prev.filter((id) => id !== card.id);
+      }
+      ensureInspirationSavedItem(card);
+      return [...prev, card.id];
+    });
+  }, [ensureInspirationSavedItem]);
+
+  const recordInspirationSwipe = useCallback((card: InspirationCard, action: SwipeAction) => {
+    const now = new Date().toISOString();
+    const event: SwipeEvent = {
+      cardId: card.id,
+      action,
+      ts: now,
+      gender: card.gender,
+      tags: card.tags || [],
+    };
+
+    setInspirationSwipes((prev) => [event, ...prev].slice(0, 200));
+
+    if (action === 'like') {
+      setInspirationLikes((prev) => (prev.includes(card.id) ? prev : [card.id, ...prev].slice(0, 400)));
+    }
+    if (action === 'dislike') {
+      setInspirationLikes((prev) => prev.filter((id) => id !== card.id));
+    }
+    if (action === 'save') {
+      setInspirationSaves((prev) => (prev.includes(card.id) ? prev : [card.id, ...prev].slice(0, 400)));
+      ensureInspirationSavedItem(card);
+    }
+
+    if (card.tags && card.tags.length > 0) {
+      setInspirationTagWeights((prev) => {
+        const next = { ...prev };
+        const delta = action === 'like' ? 2 : action === 'dislike' ? -1 : action === 'save' ? 3 : 1;
+        for (const tag of card.tags || []) {
+          const key = tag.trim().toLowerCase();
+          if (!key) continue;
+          next[key] = (next[key] || 0) + delta;
+        }
+        return trimTagWeights(next);
+      });
+    }
+
+    setInspirationCalibration((prev) => {
+      const swipesToCalibrate = prev.swipesToCalibrate || 20;
+      const progress = Math.min(swipesToCalibrate, prev.progress + 1);
+      return {
+        ...prev,
+        progress,
+        isCalibrated: prev.isCalibrated || progress >= swipesToCalibrate,
+      };
+    });
+  }, [ensureInspirationSavedItem, trimTagWeights]);
+
+  const isInspirationLiked = useCallback((id: string) => {
+    return inspirationLikes.includes(id);
+  }, [inspirationLikes]);
+
+  const isInspirationCardSaved = useCallback((id: string) => {
+    return inspirationSaves.includes(id) || savedInspirationItems.some((item) => item.inspirationId === id);
+  }, [inspirationSaves, savedInspirationItems]);
+
+  const resetInspirationProfile = useCallback(() => {
+    setInspirationQueue([]);
+    setInspirationSwipes([]);
+    setInspirationLikes([]);
+    setInspirationSaves([]);
+    setInspirationTagWeights({});
+    setInspirationCalibration(DEFAULT_INSPIRE_CALIBRATION);
+    setInspirationLastFetchTs(null);
+    AsyncStorage.multiRemove([INSPIRE_STATE_KEY, INSPIRE_SWIPES_KEY]).catch((error) => {
+      console.log('[Inspire] Failed to reset profile:', error);
+    });
+  }, []);
+
   const getSavedStyleTagFrequency = useCallback(() => {
     const freq: Record<string, number> = {};
     for (const item of savedInspirationItems) {
@@ -625,7 +1017,8 @@ export const [AppProvider, useApp] = createContextHook(() => {
     outfit.stickers.forEach(sticker => {
       updateClosetItemUsage(sticker.closetItemId);
     });
-  }, [composedOutfits, mutateComposedOutfits, updateClosetItemUsage]);
+    onOutfitSaved();
+  }, [composedOutfits, mutateComposedOutfits, onOutfitSaved, updateClosetItemUsage]);
 
   const updateComposedOutfit = useCallback((outfitId: string, updates: Partial<ComposedOutfit>) => {
     const updated = composedOutfits.map(outfit => 
@@ -680,6 +1073,34 @@ export const [AppProvider, useApp] = createContextHook(() => {
     };
   }, [closetItems]);
 
+  const wardrobeCoverageMap = useMemo<WardrobeCoverageMap>(() => {
+    return buildWardrobeCoverageMap(closetItems);
+  }, [closetItems]);
+
+  useEffect(() => {
+    setGamificationState((prev) => {
+      const hasExplorer = prev.badges.includes('diversity_starter');
+      const hasTops100 = prev.badges.includes('closet_top_100');
+      const hasAll60 = prev.badges.includes('closet_all_60');
+      const hasAll100 = prev.badges.includes('closet_all_100');
+
+      const topsCoverage = wardrobeCoverageMap.categories.find((c) => c.key === 'tops')?.coveragePct ?? 0;
+      const allCoverage = wardrobeCoverageMap.overallCoveragePct;
+
+      const nextBadges = [...prev.badges];
+      if (!hasExplorer && closetItems.length >= 10) nextBadges.push('diversity_starter');
+      if (!hasTops100 && topsCoverage >= 1) nextBadges.push('closet_top_100');
+      if (!hasAll60 && allCoverage >= 0.6) nextBadges.push('closet_all_60');
+      if (!hasAll100 && allCoverage >= 1) nextBadges.push('closet_all_100');
+
+      if (nextBadges.length === prev.badges.length) return prev;
+      const next = { ...prev, badges: nextBadges };
+      persistGamification(next);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      return next;
+    });
+  }, [closetItems.length, persistGamification, wardrobeCoverageMap]);
+
   const initializeUser = useCallback((email?: string) => {
     const id = `user_${Date.now()}`;
     mutateUser({
@@ -703,6 +1124,9 @@ export const [AppProvider, useApp] = createContextHook(() => {
       COMPOSED_OUTFITS_KEY,
       SAVED_PINS_KEY,
       SAVED_INSPO_V2_KEY,
+      GAMIFICATION_STORAGE_KEY,
+      INSPIRE_STATE_KEY,
+      INSPIRE_SWIPES_KEY,
     ]);
     setPreferences(defaultPreferences);
     setSavedLooks([]);
@@ -710,11 +1134,20 @@ export const [AppProvider, useApp] = createContextHook(() => {
     setSavedInspirations([]);
     setSavedPins([]);
     setSavedInspirationItems([]);
+    setInspirationGender(DEFAULT_INSPIRE_STATE.gender);
+    setInspirationQueue([]);
+    setInspirationSwipes([]);
+    setInspirationLikes([]);
+    setInspirationSaves([]);
+    setInspirationTagWeights({});
+    setInspirationCalibration(DEFAULT_INSPIRE_CALIBRATION);
+    setInspirationLastFetchTs(null);
     setPlannedOutfits([]);
     setNotificationSettings(defaultNotificationSettings);
     setCreatorSettings(defaultCreatorSettings);
     setRecreatedOutfits([]);
     setComposedOutfits([]);
+    setGamificationState(DEFAULT_GAMIFICATION_STATE);
     setUserId(null);
     setIsGuest(true);
     queryClient.invalidateQueries();
@@ -735,12 +1168,23 @@ export const [AppProvider, useApp] = createContextHook(() => {
     savedInspirations,
     savedPins,
     savedInspirationItems,
+    inspirationGender,
+    inspirationQueue,
+    inspirationSwipes,
+    inspirationLikes,
+    inspirationSaves,
+    inspirationCalibration,
+    inspirationTagWeights,
+    inspirationLastFetchTs,
     plannedOutfits,
     recreatedOutfits,
     composedOutfits,
     notificationSettings,
     creatorSettings,
     currentWeather,
+    gamificationState,
+    wardrobeCoverageMap,
+    badgeDefinitions: BADGE_DEFINITIONS,
     closetInsights,
     isGuest,
     userId,
@@ -774,6 +1218,14 @@ export const [AppProvider, useApp] = createContextHook(() => {
     saveInspirationItem,
     removeInspirationItem,
     isInspirationItemSaved,
+    setInspirationGenderPreference,
+    setInspirationFeedQueue,
+    appendInspirationFeedQueue,
+    toggleInspirationSaved,
+    recordInspirationSwipe,
+    isInspirationLiked,
+    isInspirationCardSaved,
+    resetInspirationProfile,
     getSavedStyleTagFrequency,
     addPlannedOutfit,
     removePlannedOutfit,
@@ -786,6 +1238,10 @@ export const [AppProvider, useApp] = createContextHook(() => {
     removeComposedOutfit,
     getComposedOutfitById,
     setCurrentWeather,
+    onOutfitCheckCompleted,
+    onClosetItemsAdded,
+    onOutfitSaved,
+    resetGamification,
     initializeUser,
     clearAllData,
   };

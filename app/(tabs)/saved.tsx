@@ -172,7 +172,13 @@ export default function SavedScreen() {
         )}
         <View style={s.inspoSourceBadge}>
           <Text style={s.inspoSourceText}>
-            {inspo.source === 'pexels' ? 'Pexels' : 'Unsplash'}
+            {inspo.source === 'pexels'
+              ? 'Pexels'
+              : inspo.source === 'unsplash'
+                ? 'Unsplash'
+                : inspo.source === 'pinterest'
+                  ? 'Pinterest'
+                  : 'MirrorMuse'}
           </Text>
         </View>
       </TouchableOpacity>

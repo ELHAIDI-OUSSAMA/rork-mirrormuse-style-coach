@@ -2,12 +2,49 @@ import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, Animated } from 'react-native';
 import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import { Image } from 'expo-image';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system';
 import { Sparkles } from 'lucide-react-native';
 import { generateMockAnalysis, loadingTips } from '@/utils/mockAnalysis';
 import { detectItemsInOutfitImage } from '@/utils/closetExtraction';
 import { useApp } from '@/contexts/AppContext';
 import { StyleVibe, Occasion, LookAnalysis } from '@/types';
 import { space, radius, shadow, palette, type as typo } from '@/constants/theme';
+
+const ANALYSIS_CACHE_PREFIX = 'mirrormuse_analysis_v2';
+
+function hashString(value: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16);
+}
+
+function getClosetSignature(
+  items: { category: string; color: string }[]
+): string {
+  if (!items.length) return 'empty';
+  const joined = items
+    .map(item => `${item.category}:${item.color}`)
+    .sort()
+    .join('|');
+  return hashString(joined);
+}
+
+async function getImageFingerprint(imageUri: string): Promise<string> {
+  if (!imageUri) return 'no-image';
+  try {
+    const info = await FileSystem.getInfoAsync(imageUri, { md5: true });
+    if (info.exists && 'md5' in info && info.md5) {
+      return info.md5;
+    }
+  } catch (error) {
+    console.log('[Loading] Could not compute md5 fingerprint:', error);
+  }
+  return hashString(imageUri);
+}
 
 export default function LoadingScreen() {
   const router = useRouter();
@@ -48,16 +85,51 @@ export default function LoadingScreen() {
     const occasion = (params.occasion || preferences.occasions[0] || 'Casual') as Occasion;
 
     const analyzeOutfit = async () => {
-      const detectedItems = await detectItemsInOutfitImage(params.imageUri || '');
-      const results = generateMockAnalysis(
-        vibe, occasion, preferences.budgetLevel,
-        closetItems.map(item => ({ category: item.category, color: item.color }))
-      );
-      results.detectedClothingItems = detectedItems;
+      const imageUri = params.imageUri || '';
+      const closetSnapshot = closetItems.map(item => ({ category: item.category, color: item.color }));
+      const imageFingerprint = await getImageFingerprint(imageUri);
+      const cacheKey = [
+        ANALYSIS_CACHE_PREFIX,
+        imageFingerprint,
+        occasion,
+        vibe,
+        preferences.budgetLevel,
+        getClosetSignature(closetSnapshot),
+      ].join(':');
+
+      const cached = await AsyncStorage.getItem(cacheKey);
+      if (cached) {
+        try {
+          const results = JSON.parse(cached);
+          const analysis: LookAnalysis = {
+            id: `look_${Date.now()}`,
+            imageUri,
+            createdAt: new Date().toISOString(),
+            occasion,
+            vibe,
+            results,
+          };
+          router.replace({
+            pathname: '/results' as any,
+            params: { analysisId: analysis.id, analysisData: JSON.stringify(analysis) },
+          });
+          return;
+        } catch (error) {
+          console.log('[Loading] Invalid cached analysis payload, recomputing:', error);
+          await AsyncStorage.removeItem(cacheKey);
+        }
+      }
+
+      const detectedItems = await detectItemsInOutfitImage(imageUri);
+      const results = generateMockAnalysis(vibe, occasion, preferences.budgetLevel, closetSnapshot, {
+        seed: `${imageFingerprint}:${occasion}:${vibe}`,
+        detectedClothingItems: detectedItems,
+      });
+      await AsyncStorage.setItem(cacheKey, JSON.stringify(results));
 
       const analysis: LookAnalysis = {
         id: `look_${Date.now()}`,
-        imageUri: params.imageUri || '',
+        imageUri,
         createdAt: new Date().toISOString(),
         occasion, vibe, results,
       };
