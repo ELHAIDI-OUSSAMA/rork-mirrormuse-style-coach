@@ -3,13 +3,13 @@ import { View, Text, StyleSheet, Animated } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Sparkles } from 'lucide-react-native';
-import { neutralColors } from '@/constants/colors';
+import { neutralColors } from '@/constants/Colors';
 import { useApp } from '@/contexts/AppContext';
 import { Button } from '@/components/Button';
 
 export default function SplashScreen() {
   const router = useRouter();
-  const { preferences, isLoading, themeColors } = useApp();
+  const { preferences, themeColors } = useApp();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
   const buttonFade = useRef(new Animated.Value(0)).current;
@@ -48,34 +48,16 @@ export default function SplashScreen() {
     router.push('/auth' as any);
   };
 
-  if (isLoading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <LinearGradient
-          colors={['#FFFFFF', '#F5F5F5', '#EEEEEE']}
-          style={StyleSheet.absoluteFill}
-        />
-      </View>
-    );
-  }
-
-  const colors = preferences.gender ? themeColors : neutralColors;
-  const gradientColors = preferences.gender === 'male' 
-    ? ['#FAFAFA', '#F0F0F0', '#E8E8E8'] as const
-    : preferences.gender === 'female'
-    ? ['#FDF8F6', '#F5EDE8', '#E8D5CF'] as const
-    : ['#FFFFFF', '#F5F5F5', '#EEEEEE'] as const;
-
   return (
     <View style={styles.container}>
       <LinearGradient
-        colors={gradientColors}
+        colors={gradientColors(preferences.gender)}
         style={StyleSheet.absoluteFill}
       />
-      
-      <View style={[styles.decorCircle1, { backgroundColor: colors.primary + '15' }]} />
-      <View style={[styles.decorCircle2, { backgroundColor: colors.secondary + '10' }]} />
-      <View style={[styles.decorCircle3, { backgroundColor: colors.accent + '10' }]} />
+
+      <View style={[styles.decorCircle1, { backgroundColor: colorsForUi(preferences.gender, themeColors).primary + '15' }]} />
+      <View style={[styles.decorCircle2, { backgroundColor: colorsForUi(preferences.gender, themeColors).secondary + '10' }]} />
+      <View style={[styles.decorCircle3, { backgroundColor: colorsForUi(preferences.gender, themeColors).accent + '10' }]} />
 
       <Animated.View
         style={[
@@ -87,17 +69,17 @@ export default function SplashScreen() {
         ]}
       >
         <View style={styles.logoContainer}>
-          <View style={[styles.iconWrapper, { backgroundColor: colors.card }]}>
-            <Sparkles size={40} color={colors.primary} />
+          <View style={[styles.iconWrapper, { backgroundColor: colorsForUi(preferences.gender, themeColors).card }]}>
+            <Sparkles size={40} color={colorsForUi(preferences.gender, themeColors).primary} />
           </View>
-          <Text style={[styles.logo, { color: colors.text }]}>MirrorMuse</Text>
+          <Text style={[styles.logo, { color: colorsForUi(preferences.gender, themeColors).text }]}>MirrorMuse</Text>
         </View>
-        
-        <Text style={[styles.tagline, { color: colors.text }]}>
+
+        <Text style={[styles.tagline, { color: colorsForUi(preferences.gender, themeColors).text }]}>
           Your mirror selfie{'\n'}→ outfit upgrades
         </Text>
-        
-        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+
+        <Text style={[styles.subtitle, { color: colorsForUi(preferences.gender, themeColors).textSecondary }]}>
           Get instant styling suggestions powered by AI.{'\n'}
           Confidence-boosting, never judgy.
         </Text>
@@ -122,6 +104,20 @@ export default function SplashScreen() {
   );
 }
 
+function colorsForUi(gender: 'male' | 'female' | undefined, themeColors: any) {
+  return gender ? themeColors : neutralColors;
+}
+
+function gradientColors(gender: 'male' | 'female' | undefined) {
+  if (gender === 'male') {
+    return ['#FAFAFA', '#F0F0F0', '#E8E8E8'] as const;
+  }
+  if (gender === 'female') {
+    return ['#FDF8F6', '#F5EDE8', '#E8D5CF'] as const;
+  }
+  return ['#FFFFFF', '#F5F5F5', '#EEEEEE'] as const;
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -129,9 +125,6 @@ const styles = StyleSheet.create({
     paddingTop: 120,
     paddingBottom: 60,
     paddingHorizontal: 24,
-  },
-  loadingContainer: {
-    flex: 1,
   },
   decorCircle1: {
     position: 'absolute',

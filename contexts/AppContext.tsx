@@ -2,7 +2,7 @@ import createContextHook from '@nkzw/create-context-hook';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   UserPreferences,
   LookAnalysis,
@@ -26,6 +26,18 @@ import {
   InspirationItem,
   GamificationState,
   WardrobeCoverageMap,
+  AvatarProfile,
+  VirtualTryOnRender,
+  MarketplaceListing,
+  MarketplaceSearchQuery,
+  DemandNotification,
+  ImportedOutfit,
+  MarketplaceOrder,
+  SellerProfile,
+  DemandSignal,
+  ClosetSellOpportunity,
+} from '@/types';
+import {
   InspirationCard,
   SwipeAction,
   SwipeEvent,
@@ -33,9 +45,26 @@ import {
   InspirationPersistentState,
   DEFAULT_INSPIRE_CALIBRATION,
   DEFAULT_INSPIRE_STATE,
-} from '@/types';
-import { getColorsForGender, ColorTheme } from '@/constants/colors';
-import { setQueueUpdater, resumePendingItems } from '@/lib/processingQueue';
+} from '@/types/inspiration';
+import { getColorsForGender, ColorTheme } from '@/constants/Colors';
+import {
+  setQueueUpdater,
+  setQueueRemover,
+  resumePendingItems,
+  setTwinQueueHandlers,
+  enqueueAvatarCreateJob,
+  enqueueTryOnRenderJob,
+} from '@/lib/processingQueue';
+import { cleanupOrphanStickerFiles, migrateClosetStorage } from '@/lib/storageMigration';
+import { getCleanupCandidates } from '@/lib/cleanupCandidates';
+import { estimateResaleValue } from '@/lib/resaleEstimator';
+import { computeDemandInsights, runDemandSupplyMatcher } from '@/lib/demandIntelligence';
+import { aggregateDemandSignals, demandLevelFromScore } from '@/lib/demandSignals';
+import { findSellOpportunities, maybeSendSellOpportunityNotification } from '@/lib/sellOpportunities';
+import { getClosetValueInsights, getStylePersonalityInsights } from '@/lib/closetAnalytics';
+import { importOutfitFromSharedPayload, getSourceFingerprint } from '@/lib/importedOutfitPipeline';
+import { calculateMarketplaceFees, canAutoCompleteOrder } from '@/lib/marketplace';
+import { deleteAvatarFiles } from '@/lib/virtualTryOn';
 import {
   BADGE_DEFINITIONS,
   DEFAULT_GAMIFICATION_STATE,
@@ -61,6 +90,25 @@ const SAVED_PINS_KEY = 'mirrormuse_saved_pins';
 const SAVED_INSPO_V2_KEY = 'mirrormuse_saved_inspo_v2';
 const INSPIRE_STATE_KEY = 'mirrormuse_inspire_state_v1';
 const INSPIRE_SWIPES_KEY = 'mirrormuse_inspire_swipes_v1';
+const ONBOARDING_COMPLETED_KEY = 'onboarding_completed_v1';
+const ONBOARDING_STEP_KEY = 'onboarding_step_index_v1';
+const ONBOARDING_ANSWERS_KEY = 'onboarding_answers_v1';
+const ONBOARDING_PHOTO_TAKEN_KEY = 'onboarding_photo_taken_v1';
+const ONBOARDING_AHA_SHOWN_KEY = 'onboarding_aha_shown_v1';
+const ONBOARDING_IMAGE_URI_KEY = 'onboarding_image_uri_v1';
+const REVIEW_PROMPTED_KEY = 'review_prompted_v1';
+const ONBOARDING_PLAN_KEY = 'mirrormuse_plan_v1';
+const AVATAR_PROFILE_KEY = 'mirrormuse_avatar_profile_v1';
+const TRYON_RENDERS_KEY = 'mirrormuse_tryon_renders_v1';
+const MARKETPLACE_LISTINGS_KEY = 'mirrormuse_marketplace_listings_v1';
+const MARKETPLACE_SEARCH_QUERIES_KEY = 'mirrormuse_marketplace_search_queries_v1';
+const DEMAND_NOTIFICATIONS_KEY = 'mirrormuse_demand_notifications_v1';
+const IMPORTED_OUTFITS_KEY = 'mirrormuse_imported_outfits_v1';
+const MARKETPLACE_ORDERS_KEY = 'mirrormuse_marketplace_orders_v1';
+const SELLER_PROFILES_KEY = 'mirrormuse_seller_profiles_v1';
+const DEMAND_SIGNALS_KEY = 'mirrormuse_demand_signals_v1';
+const SELL_OPPORTUNITIES_KEY = 'mirrormuse_sell_opportunities_v1';
+const SELL_OPP_LAST_NOTIFICATION_AT_KEY = 'mirrormuse_sell_opp_last_notification_at_v1';
 
 const defaultPreferences: UserPreferences = {
   gender: undefined,
@@ -109,6 +157,26 @@ export const [AppProvider, useApp] = createContextHook(() => {
   const [gamificationState, setGamificationState] = useState<GamificationState>(DEFAULT_GAMIFICATION_STATE);
   const [isGuest, setIsGuest] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
+  const closetItemsRef = useRef<ClosetItem[]>([]);
+  const [avatarProfile, setAvatarProfile] = useState<AvatarProfile | null>(null);
+  const [virtualTryOnRenders, setVirtualTryOnRenders] = useState<VirtualTryOnRender[]>([]);
+  const [marketplaceListings, setMarketplaceListings] = useState<MarketplaceListing[]>([]);
+  const [marketplaceSearchQueries, setMarketplaceSearchQueries] = useState<MarketplaceSearchQuery[]>([]);
+  const [demandNotifications, setDemandNotifications] = useState<DemandNotification[]>([]);
+  const [importedOutfits, setImportedOutfits] = useState<ImportedOutfit[]>([]);
+  const [marketplaceOrders, setMarketplaceOrders] = useState<MarketplaceOrder[]>([]);
+  const [sellerProfiles, setSellerProfiles] = useState<SellerProfile[]>([]);
+  const [demandSignals, setDemandSignals] = useState<DemandSignal[]>([]);
+  const [sellOpportunities, setSellOpportunities] = useState<ClosetSellOpportunity[]>([]);
+  const [lastSellOpportunityNotificationAt, setLastSellOpportunityNotificationAt] = useState<string | null>(null);
+  const normalizeClosetItemState = useCallback((item: ClosetItem): ClosetItem => {
+    const next: ClosetItem = { ...item };
+    if (!next.lastWornAt && next.lastUsedAt) next.lastWornAt = next.lastUsedAt;
+    if (!next.status) next.status = 'active';
+    if (!next.estimatedResaleValue) next.estimatedResaleValue = estimateResaleValue(next);
+    return next;
+  }, []);
+
 
   const persistGamification = useCallback(async (nextState: GamificationState) => {
     try {
@@ -164,7 +232,80 @@ export const [AppProvider, useApp] = createContextHook(() => {
     queryKey: ['closet'],
     queryFn: async () => {
       const stored = await AsyncStorage.getItem(CLOSET_KEY);
+      const parsed: ClosetItem[] = stored ? JSON.parse(stored) : [];
+      return parsed.map(normalizeClosetItemState);
+    },
+  });
+
+  const marketplaceListingsQuery = useQuery({
+    queryKey: ['marketplaceListings'],
+    queryFn: async () => {
+      const stored = await AsyncStorage.getItem(MARKETPLACE_LISTINGS_KEY);
       return stored ? JSON.parse(stored) : [];
+    },
+  });
+
+  const marketplaceSearchQueriesQuery = useQuery({
+    queryKey: ['marketplaceSearchQueries'],
+    queryFn: async () => {
+      const stored = await AsyncStorage.getItem(MARKETPLACE_SEARCH_QUERIES_KEY);
+      return stored ? JSON.parse(stored) : [];
+    },
+  });
+
+  const demandNotificationsQuery = useQuery({
+    queryKey: ['demandNotifications'],
+    queryFn: async () => {
+      const stored = await AsyncStorage.getItem(DEMAND_NOTIFICATIONS_KEY);
+      return stored ? JSON.parse(stored) : [];
+    },
+  });
+
+  const importedOutfitsQuery = useQuery({
+    queryKey: ['importedOutfits'],
+    queryFn: async () => {
+      const stored = await AsyncStorage.getItem(IMPORTED_OUTFITS_KEY);
+      return stored ? JSON.parse(stored) : [];
+    },
+  });
+
+  const marketplaceOrdersQuery = useQuery({
+    queryKey: ['marketplaceOrders'],
+    queryFn: async () => {
+      const stored = await AsyncStorage.getItem(MARKETPLACE_ORDERS_KEY);
+      return stored ? JSON.parse(stored) : [];
+    },
+  });
+
+  const sellerProfilesQuery = useQuery({
+    queryKey: ['sellerProfiles'],
+    queryFn: async () => {
+      const stored = await AsyncStorage.getItem(SELLER_PROFILES_KEY);
+      return stored ? JSON.parse(stored) : [];
+    },
+  });
+
+  const demandSignalsQuery = useQuery({
+    queryKey: ['demandSignals'],
+    queryFn: async () => {
+      const stored = await AsyncStorage.getItem(DEMAND_SIGNALS_KEY);
+      return stored ? JSON.parse(stored) : [];
+    },
+  });
+
+  const sellOpportunitiesQuery = useQuery({
+    queryKey: ['sellOpportunities'],
+    queryFn: async () => {
+      const stored = await AsyncStorage.getItem(SELL_OPPORTUNITIES_KEY);
+      return stored ? JSON.parse(stored) : [];
+    },
+  });
+
+  const sellOppLastNotificationQuery = useQuery({
+    queryKey: ['sellOppLastNotificationAt'],
+    queryFn: async () => {
+      const stored = await AsyncStorage.getItem(SELL_OPP_LAST_NOTIFICATION_AT_KEY);
+      return stored || null;
     },
   });
 
@@ -248,10 +389,93 @@ export const [AppProvider, useApp] = createContextHook(() => {
 
   useEffect(() => {
     if (closetQuery.data) {
-      setClosetItems(closetQuery.data);
-      resumePendingItems(closetQuery.data);
+      const normalized = closetQuery.data.map(normalizeClosetItemState);
+      setClosetItems(normalized);
+      closetItemsRef.current = normalized;
+      resumePendingItems(normalized);
     }
-  }, [closetQuery.data]);
+  }, [closetQuery.data, normalizeClosetItemState]);
+
+  useEffect(() => {
+    if (!closetQuery.data) return;
+    let cancelled = false;
+    const runMigration = async () => {
+      const { items, changed } = await migrateClosetStorage(closetQuery.data);
+      const normalized = items.map(normalizeClosetItemState);
+      if (cancelled) return;
+      if (changed || JSON.stringify(normalized) !== JSON.stringify(closetQuery.data)) {
+        setClosetItems(normalized);
+        closetItemsRef.current = normalized;
+        queryClient.setQueryData(['closet'], normalized);
+        await AsyncStorage.setItem(CLOSET_KEY, JSON.stringify(normalized));
+      }
+      cleanupOrphanStickerFiles(normalized).catch(() => {});
+    };
+    runMigration().catch((error) => {
+      console.log('[StorageMigration] closet migration failed:', error);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [closetQuery.data, normalizeClosetItemState, queryClient]);
+
+  useEffect(() => {
+    if (marketplaceListingsQuery.data) {
+      setMarketplaceListings(marketplaceListingsQuery.data);
+    }
+  }, [marketplaceListingsQuery.data]);
+
+  useEffect(() => {
+    if (marketplaceSearchQueriesQuery.data) {
+      setMarketplaceSearchQueries(marketplaceSearchQueriesQuery.data);
+    }
+  }, [marketplaceSearchQueriesQuery.data]);
+
+  useEffect(() => {
+    if (demandNotificationsQuery.data) {
+      setDemandNotifications(demandNotificationsQuery.data);
+    }
+  }, [demandNotificationsQuery.data]);
+
+  useEffect(() => {
+    if (importedOutfitsQuery.data) {
+      setImportedOutfits(importedOutfitsQuery.data);
+    }
+  }, [importedOutfitsQuery.data]);
+
+  useEffect(() => {
+    if (marketplaceOrdersQuery.data) {
+      setMarketplaceOrders(marketplaceOrdersQuery.data);
+    }
+  }, [marketplaceOrdersQuery.data]);
+
+  useEffect(() => {
+    if (sellerProfilesQuery.data) {
+      setSellerProfiles(sellerProfilesQuery.data);
+    }
+  }, [sellerProfilesQuery.data]);
+
+  useEffect(() => {
+    if (demandSignalsQuery.data) {
+      setDemandSignals(demandSignalsQuery.data);
+    }
+  }, [demandSignalsQuery.data]);
+
+  useEffect(() => {
+    if (sellOpportunitiesQuery.data) {
+      setSellOpportunities(sellOpportunitiesQuery.data);
+    }
+  }, [sellOpportunitiesQuery.data]);
+
+  useEffect(() => {
+    if (sellOppLastNotificationQuery.data !== undefined) {
+      setLastSellOpportunityNotificationAt(sellOppLastNotificationQuery.data);
+    }
+  }, [sellOppLastNotificationQuery.data]);
+
+  useEffect(() => {
+    closetItemsRef.current = closetItems;
+  }, [closetItems]);
 
   useEffect(() => {
     if (inspirationQuery.data) {
@@ -316,6 +540,34 @@ export const [AppProvider, useApp] = createContextHook(() => {
       setSavedInspirationItems(savedInspoV2Query.data);
     }
   }, [savedInspoV2Query.data]);
+
+  const avatarProfileQuery = useQuery({
+    queryKey: ['avatarProfile'],
+    queryFn: async () => {
+      const stored = await AsyncStorage.getItem(AVATAR_PROFILE_KEY);
+      return stored ? JSON.parse(stored) : null;
+    },
+  });
+
+  useEffect(() => {
+    if (avatarProfileQuery.data !== undefined) {
+      setAvatarProfile(avatarProfileQuery.data);
+    }
+  }, [avatarProfileQuery.data]);
+
+  const tryOnRendersQuery = useQuery({
+    queryKey: ['virtualTryOnRenders'],
+    queryFn: async () => {
+      const stored = await AsyncStorage.getItem(TRYON_RENDERS_KEY);
+      return stored ? JSON.parse(stored) : [];
+    },
+  });
+
+  useEffect(() => {
+    if (tryOnRendersQuery.data) {
+      setVirtualTryOnRenders(tryOnRendersQuery.data);
+    }
+  }, [tryOnRendersQuery.data]);
 
   useEffect(() => {
     if (userQuery.data) {
@@ -570,7 +822,35 @@ export const [AppProvider, useApp] = createContextHook(() => {
     },
   });
 
+  const saveAvatarProfileMutation = useMutation({
+    mutationFn: async (profile: AvatarProfile | null) => {
+      if (!profile) {
+        await AsyncStorage.removeItem(AVATAR_PROFILE_KEY);
+        return profile;
+      }
+      await AsyncStorage.setItem(AVATAR_PROFILE_KEY, JSON.stringify(profile));
+      return profile;
+    },
+    onSuccess: (data) => {
+      setAvatarProfile(data);
+      queryClient.invalidateQueries({ queryKey: ['avatarProfile'] });
+    },
+  });
+
+  const saveTryOnRendersMutation = useMutation({
+    mutationFn: async (renders: VirtualTryOnRender[]) => {
+      await AsyncStorage.setItem(TRYON_RENDERS_KEY, JSON.stringify(renders));
+      return renders;
+    },
+    onSuccess: (data) => {
+      setVirtualTryOnRenders(data);
+      queryClient.invalidateQueries({ queryKey: ['virtualTryOnRenders'] });
+    },
+  });
+
   const { mutate: mutateInspoV2 } = saveInspoV2Mutation;
+  const { mutate: mutateAvatarProfile } = saveAvatarProfileMutation;
+  const { mutate: mutateTryOnRenders } = saveTryOnRendersMutation;
   const { mutate: mutateUser } = saveUserMutation;
 
   const updatePreferences = useCallback((updates: Partial<UserPreferences>) => {
@@ -665,8 +945,58 @@ export const [AppProvider, useApp] = createContextHook(() => {
   }, [savedLooks]);
 
   const persistCloset = useCallback((items: ClosetItem[]) => {
-    queryClient.setQueryData(['closet'], items);
-    AsyncStorage.setItem(CLOSET_KEY, JSON.stringify(items));
+    const normalized = items.map(normalizeClosetItemState);
+    queryClient.setQueryData(['closet'], normalized);
+    AsyncStorage.setItem(CLOSET_KEY, JSON.stringify(normalized));
+  }, [normalizeClosetItemState, queryClient]);
+
+  const persistMarketplaceListings = useCallback((items: MarketplaceListing[]) => {
+    queryClient.setQueryData(['marketplaceListings'], items);
+    AsyncStorage.setItem(MARKETPLACE_LISTINGS_KEY, JSON.stringify(items));
+  }, [queryClient]);
+
+  const persistMarketplaceSearchQueries = useCallback((items: MarketplaceSearchQuery[]) => {
+    queryClient.setQueryData(['marketplaceSearchQueries'], items);
+    AsyncStorage.setItem(MARKETPLACE_SEARCH_QUERIES_KEY, JSON.stringify(items));
+  }, [queryClient]);
+
+  const persistDemandNotifications = useCallback((items: DemandNotification[]) => {
+    queryClient.setQueryData(['demandNotifications'], items);
+    AsyncStorage.setItem(DEMAND_NOTIFICATIONS_KEY, JSON.stringify(items));
+  }, [queryClient]);
+
+  const persistImportedOutfits = useCallback((items: ImportedOutfit[]) => {
+    queryClient.setQueryData(['importedOutfits'], items);
+    AsyncStorage.setItem(IMPORTED_OUTFITS_KEY, JSON.stringify(items));
+  }, [queryClient]);
+
+  const persistMarketplaceOrders = useCallback((items: MarketplaceOrder[]) => {
+    queryClient.setQueryData(['marketplaceOrders'], items);
+    AsyncStorage.setItem(MARKETPLACE_ORDERS_KEY, JSON.stringify(items));
+  }, [queryClient]);
+
+  const persistSellerProfiles = useCallback((items: SellerProfile[]) => {
+    queryClient.setQueryData(['sellerProfiles'], items);
+    AsyncStorage.setItem(SELLER_PROFILES_KEY, JSON.stringify(items));
+  }, [queryClient]);
+
+  const persistDemandSignals = useCallback((items: DemandSignal[]) => {
+    queryClient.setQueryData(['demandSignals'], items);
+    AsyncStorage.setItem(DEMAND_SIGNALS_KEY, JSON.stringify(items));
+  }, [queryClient]);
+
+  const persistSellOpportunities = useCallback((items: ClosetSellOpportunity[]) => {
+    queryClient.setQueryData(['sellOpportunities'], items);
+    AsyncStorage.setItem(SELL_OPPORTUNITIES_KEY, JSON.stringify(items));
+  }, [queryClient]);
+
+  const persistSellOpportunityNotificationAt = useCallback((iso: string | null) => {
+    queryClient.setQueryData(['sellOppLastNotificationAt'], iso);
+    if (!iso) {
+      AsyncStorage.removeItem(SELL_OPP_LAST_NOTIFICATION_AT_KEY);
+      return;
+    }
+    AsyncStorage.setItem(SELL_OPP_LAST_NOTIFICATION_AT_KEY, iso);
   }, [queryClient]);
 
   const normalizeText = (value?: string) => (value || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -690,49 +1020,42 @@ export const [AppProvider, useApp] = createContextHook(() => {
   }, []);
 
   const addClosetItem = useCallback((item: ClosetItem) => {
-    const itemWithUsage = { ...item, usageCount: item.usageCount ?? 0 };
-    let result: { added: boolean; duplicate: boolean } = { added: false, duplicate: true };
-
-    setClosetItems((prev) => {
-      const duplicate = prev.some((existing) => isDuplicateClosetItem(existing, itemWithUsage));
-      if (duplicate) {
-        result = { added: false, duplicate: true };
-        return prev;
-      }
-
-      const updated = [itemWithUsage, ...prev];
-      result = { added: true, duplicate: false };
-      persistCloset(updated);
-      return updated;
-    });
-
-    if (result.added) {
-      onClosetItemsAdded(1);
+    const itemWithUsage = normalizeClosetItemState({ ...item, usageCount: item.usageCount ?? 0 });
+    const current = closetItemsRef.current;
+    const duplicate = current.some((existing) => isDuplicateClosetItem(existing, itemWithUsage));
+    if (duplicate) {
+      return { added: false, duplicate: true };
     }
-    return result;
+
+    const updated = [itemWithUsage, ...current];
+    closetItemsRef.current = updated;
+    setClosetItems(updated);
+    persistCloset(updated);
+    onClosetItemsAdded(1);
+
+    return { added: true, duplicate: false };
   }, [isDuplicateClosetItem, onClosetItemsAdded, persistCloset]);
 
   const addClosetItems = useCallback((items: ClosetItem[]) => {
-    const itemsWithUsage = items.map(i => ({ ...i, usageCount: i.usageCount ?? 0 }));
+    const itemsWithUsage = items.map(i => normalizeClosetItemState({ ...i, usageCount: i.usageCount ?? 0 }));
     let added = 0;
     let skipped = 0;
+    const next = [...closetItemsRef.current];
+    for (const item of itemsWithUsage) {
+      const duplicate = next.some((existing) => isDuplicateClosetItem(existing, item));
+      if (duplicate) {
+        skipped += 1;
+        continue;
+      }
+      next.unshift(item);
+      added += 1;
+    }
 
-    setClosetItems((prev) => {
-      const next = [...prev];
-      for (const item of itemsWithUsage) {
-        const duplicate = next.some((existing) => isDuplicateClosetItem(existing, item));
-        if (duplicate) {
-          skipped += 1;
-          continue;
-        }
-        next.unshift(item);
-        added += 1;
-      }
-      if (added > 0) {
-        persistCloset(next);
-      }
-      return next;
-    });
+    if (added > 0) {
+      closetItemsRef.current = next;
+      setClosetItems(next);
+      persistCloset(next);
+    }
 
     if (added > 0) onClosetItemsAdded(added);
 
@@ -755,12 +1078,12 @@ export const [AppProvider, useApp] = createContextHook(() => {
   const updateClosetItem = useCallback((itemId: string, updates: Partial<ClosetItem>) => {
     setClosetItems(prev => {
       const updated = prev.map(item =>
-        item.id === itemId ? { ...item, ...updates } : item
+        item.id === itemId ? normalizeClosetItemState({ ...item, ...updates }) : item
       );
       persistCloset(updated);
       return updated;
     });
-  }, [persistCloset]);
+  }, [normalizeClosetItemState, persistCloset]);
 
   const updateClosetItemPosition = useCallback((itemId: string, position: ClosetItemPosition) => {
     setClosetItems(prev => {
@@ -776,7 +1099,14 @@ export const [AppProvider, useApp] = createContextHook(() => {
     setClosetItems(prev => {
       const updated = prev.map(item =>
         item.id === itemId
-          ? { ...item, usageCount: (item.usageCount || 0) + 1, lastUsedAt: new Date().toISOString() }
+          ? {
+              ...item,
+              usageCount: (item.usageCount || 0) + 1,
+              lastUsedAt: new Date().toISOString(),
+              lastWornAt: new Date().toISOString(),
+              status: item.status === 'cleanup_candidate' ? 'active' : item.status,
+              cleanupDismissedUntil: undefined,
+            }
           : item
       );
       persistCloset(updated);
@@ -784,13 +1114,240 @@ export const [AppProvider, useApp] = createContextHook(() => {
     });
   }, [persistCloset]);
 
+  const createMarketplaceListing = useCallback((listing: Omit<MarketplaceListing, 'id' | 'createdAt' | 'updatedAt'>) => {
+    const nextListing: MarketplaceListing = {
+      ...listing,
+      id: `listing_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const nextListings = [nextListing, ...marketplaceListings];
+    setMarketplaceListings(nextListings);
+    persistMarketplaceListings(nextListings);
+    updateClosetItem(nextListing.closetItemId, {
+      status: 'listed_for_sale',
+      marketplaceListingId: nextListing.id,
+      cleanupDismissedUntil: undefined,
+      lifecycleUpdatedAt: new Date().toISOString(),
+    });
+    const nextOpportunities = sellOpportunities.filter((item) => item.closetItemId !== nextListing.closetItemId);
+    if (nextOpportunities.length !== sellOpportunities.length) {
+      setSellOpportunities(nextOpportunities);
+      persistSellOpportunities(nextOpportunities);
+    }
+    return nextListing;
+  }, [marketplaceListings, persistMarketplaceListings, persistSellOpportunities, sellOpportunities, updateClosetItem]);
+
+  const updateMarketplaceListing = useCallback((listingId: string, updates: Partial<MarketplaceListing>) => {
+    const nextListings = marketplaceListings.map((listing) =>
+      listing.id === listingId ? { ...listing, ...updates, updatedAt: new Date().toISOString() } : listing
+    );
+    setMarketplaceListings(nextListings);
+    persistMarketplaceListings(nextListings);
+  }, [marketplaceListings, persistMarketplaceListings]);
+
+  const getSellerProfileByUserId = useCallback((profileUserId: string) => {
+    return sellerProfiles.find((profile) => profile.userId === profileUserId);
+  }, [sellerProfiles]);
+
+  const upsertSellerProfile = useCallback((profile: SellerProfile) => {
+    const exists = sellerProfiles.some((row) => row.userId === profile.userId);
+    const next = exists
+      ? sellerProfiles.map((row) => (row.userId === profile.userId ? { ...row, ...profile } : row))
+      : [profile, ...sellerProfiles];
+    setSellerProfiles(next);
+    persistSellerProfiles(next);
+  }, [persistSellerProfiles, sellerProfiles]);
+
+  const createMarketplaceOrder = useCallback((listingId: string) => {
+    const listing = marketplaceListings.find((row) => row.id === listingId && row.status === 'active');
+    if (!listing) return null;
+    const buyer = userId || `guest_${Date.now()}`;
+    const { platformFee, sellerPayout } = calculateMarketplaceFees(listing.price);
+    const order: MarketplaceOrder = {
+      id: `order_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      listingId: listing.id,
+      buyerId: buyer,
+      sellerId: listing.sellerId,
+      price: listing.price,
+      platformFee,
+      sellerPayout,
+      status: 'pending_payment',
+      paymentIntentId: `pi_mock_${Date.now()}`,
+      createdAt: new Date().toISOString(),
+    };
+    const next = [order, ...marketplaceOrders];
+    setMarketplaceOrders(next);
+    persistMarketplaceOrders(next);
+    return order;
+  }, [marketplaceListings, marketplaceOrders, persistMarketplaceOrders, userId]);
+
+  const updateMarketplaceOrder = useCallback((orderId: string, updates: Partial<MarketplaceOrder>) => {
+    const next = marketplaceOrders.map((order) =>
+      order.id === orderId ? { ...order, ...updates } : order
+    );
+    setMarketplaceOrders(next);
+    persistMarketplaceOrders(next);
+  }, [marketplaceOrders, persistMarketplaceOrders]);
+
+  const processMarketplacePayment = useCallback((orderId: string) => {
+    updateMarketplaceOrder(orderId, { status: 'awaiting_shipment' });
+    const order = marketplaceOrders.find((row) => row.id === orderId);
+    if (!order) return;
+    updateMarketplaceListing(order.listingId, { status: 'sold' });
+    const listing = marketplaceListings.find((row) => row.id === order.listingId);
+    if (listing) {
+      updateClosetItem(listing.closetItemId, {
+        status: 'sold',
+        lifecycleUpdatedAt: new Date().toISOString(),
+      });
+    }
+  }, [marketplaceListings, marketplaceOrders, updateClosetItem, updateMarketplaceListing, updateMarketplaceOrder]);
+
+  const addTrackingToOrder = useCallback((orderId: string, trackingNumber: string) => {
+    updateMarketplaceOrder(orderId, {
+      trackingNumber,
+      status: 'shipped',
+    });
+  }, [updateMarketplaceOrder]);
+
+  const confirmMarketplaceDelivery = useCallback((orderId: string) => {
+    updateMarketplaceOrder(orderId, { status: 'completed' });
+    const order = marketplaceOrders.find((row) => row.id === orderId);
+    if (!order) return;
+    const profile = sellerProfiles.find((row) => row.userId === order.sellerId);
+    if (!profile) {
+      upsertSellerProfile({
+        userId: order.sellerId,
+        rating: 4.8,
+        totalSales: 1,
+        responseTime: '< 12h',
+        joinDate: new Date().toISOString(),
+      });
+      return;
+    }
+    upsertSellerProfile({
+      ...profile,
+      totalSales: profile.totalSales + 1,
+    });
+  }, [marketplaceOrders, sellerProfiles, updateMarketplaceOrder, upsertSellerProfile]);
+
+  const getMarketplaceOrderById = useCallback((orderId: string) => {
+    return marketplaceOrders.find((order) => order.id === orderId);
+  }, [marketplaceOrders]);
+
+  const trackMarketplaceSearch = useCallback((query: string, filters?: {
+    category?: string;
+    brand?: string;
+    size?: string;
+    color?: string;
+    userId?: string;
+  }) => {
+    if (!query.trim()) return;
+    const entry: MarketplaceSearchQuery = {
+      id: `demand_query_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      query: query.trim(),
+      timestamp: new Date().toISOString(),
+      category: filters?.category,
+      brand: filters?.brand,
+      size: filters?.size,
+      color: filters?.color,
+      userId: filters?.userId || userId || undefined,
+    };
+    const next = [entry, ...marketplaceSearchQueries].slice(0, 1200);
+    setMarketplaceSearchQueries(next);
+    persistMarketplaceSearchQueries(next);
+  }, [marketplaceSearchQueries, persistMarketplaceSearchQueries, userId]);
+
+  const trackMarketplaceSearchQuery = useCallback((input: {
+    query: string;
+    category?: string;
+    brand?: string;
+    size?: string;
+    color?: string;
+    userId?: string;
+  }) => {
+    trackMarketplaceSearch(input.query, input);
+  }, [trackMarketplaceSearch]);
+
+  const markDemandNotificationSeen = useCallback((notificationId: string) => {
+    const next = demandNotifications.map((item) =>
+      item.id === notificationId ? { ...item, seen: true } : item
+    );
+    setDemandNotifications(next);
+    persistDemandNotifications(next);
+  }, [demandNotifications, persistDemandNotifications]);
+
+  const saveImportedOutfit = useCallback((outfit: ImportedOutfit) => {
+    const existing = importedOutfits.find((item) => item.sourceFingerprint === outfit.sourceFingerprint);
+    if (existing) return existing;
+    const next = [outfit, ...importedOutfits].slice(0, 300);
+    setImportedOutfits(next);
+    persistImportedOutfits(next);
+    return outfit;
+  }, [importedOutfits, persistImportedOutfits]);
+
+  const importOutfitFromShare = useCallback(async (payload: {
+    sourceUrl: string;
+    mediaUrl?: string;
+    postUrl?: string;
+    thumbnailUrl?: string;
+  }) => {
+    const fingerprint = getSourceFingerprint(payload.sourceUrl);
+    const existing = importedOutfits.find((item) => item.sourceFingerprint === fingerprint);
+    if (existing) return existing;
+    const imported = await importOutfitFromSharedPayload(payload);
+    return saveImportedOutfit(imported);
+  }, [importedOutfits, saveImportedOutfit]);
+
+  const getImportedOutfitById = useCallback((id: string) => {
+    return importedOutfits.find((item) => item.id === id);
+  }, [importedOutfits]);
+
+  const cleanupCandidates = useMemo(() => getCleanupCandidates(closetItems), [closetItems]);
+  const demandInsights = useMemo(() => computeDemandInsights(marketplaceSearchQueries), [marketplaceSearchQueries]);
+  const highDemandSellOpportunities = useMemo(
+    () => sellOpportunities.filter((item) => item.demandLevel === 'high' && (!item.dismissedUntil || new Date(item.dismissedUntil).getTime() <= Date.now())),
+    [sellOpportunities]
+  );
+  const closetValueInsights = useMemo(
+    () => getClosetValueInsights(closetItems, cleanupCandidates, demandNotifications),
+    [cleanupCandidates, closetItems, demandNotifications]
+  );
+  const stylePersonalityInsights = useMemo(
+    () => getStylePersonalityInsights(closetItems),
+    [closetItems]
+  );
+
   const getClosetItemsByCategory = useCallback((category: string) => {
-    return closetItems.filter(i => i.category === category);
+    return closetItems.filter(i => i.category === category && i.status !== 'sold' && i.status !== 'donated');
   }, [closetItems]);
 
   const getClosetItemById = useCallback((id: string) => {
     return closetItems.find(i => i.id === id);
   }, [closetItems]);
+
+  const getMarketplaceListingById = useCallback((id: string) => {
+    return marketplaceListings.find((listing) => listing.id === id);
+  }, [marketplaceListings]);
+
+  const getSellOpportunityForItem = useCallback((closetItemId: string) => {
+    const now = Date.now();
+    return sellOpportunities.find((item) =>
+      item.closetItemId === closetItemId &&
+      (!item.dismissedUntil || new Date(item.dismissedUntil).getTime() <= now)
+    );
+  }, [sellOpportunities]);
+
+  const dismissSellOpportunity = useCallback((opportunityId: string, days = 30) => {
+    const next = sellOpportunities.map((item) =>
+      item.id === opportunityId
+        ? { ...item, dismissedUntil: new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString() }
+        : item
+    );
+    setSellOpportunities(next);
+    persistSellOpportunities(next);
+  }, [persistSellOpportunities, sellOpportunities]);
 
   const toggleSaveInspiration = useCallback((id: string) => {
     const updated = savedInspirations.includes(id)
@@ -884,8 +1441,8 @@ export const [AppProvider, useApp] = createContextHook(() => {
       imageUrl: card.imageUrl,
       thumbnailUrl: card.imageUrl,
       source: card.source,
-      author: card.title || 'MirrorMuse',
-      styleTags: card.tags || [],
+      author: card.vibeTags[0] || 'MirrorMuse',
+      styleTags: card.vibeTags || [],
       savedAt: new Date().toISOString(),
     };
     mutateInspoV2([entry, ...savedInspirationItems]);
@@ -909,7 +1466,7 @@ export const [AppProvider, useApp] = createContextHook(() => {
       action,
       ts: now,
       gender: card.gender,
-      tags: card.tags || [],
+      tags: card.vibeTags || [],
     };
 
     setInspirationSwipes((prev) => [event, ...prev].slice(0, 200));
@@ -925,11 +1482,11 @@ export const [AppProvider, useApp] = createContextHook(() => {
       ensureInspirationSavedItem(card);
     }
 
-    if (card.tags && card.tags.length > 0) {
+    if (card.vibeTags && card.vibeTags.length > 0) {
       setInspirationTagWeights((prev) => {
         const next = { ...prev };
         const delta = action === 'like' ? 2 : action === 'dislike' ? -1 : action === 'save' ? 3 : 1;
-        for (const tag of card.tags || []) {
+        for (const tag of card.vibeTags || []) {
           const key = tag.trim().toLowerCase();
           if (!key) continue;
           next[key] = (next[key] || 0) + delta;
@@ -1110,6 +1667,65 @@ export const [AppProvider, useApp] = createContextHook(() => {
     });
   }, [mutateUser]);
 
+  const createDigitalTwin = useCallback(async (faceImageUri: string, bodyImageUri: string) => {
+    const placeholder: AvatarProfile = {
+      id: `avatar-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      faceImageUri,
+      bodyImageUri,
+      status: 'creating',
+    };
+    setAvatarProfile(placeholder);
+    mutateAvatarProfile(placeholder);
+    enqueueAvatarCreateJob(placeholder.id, faceImageUri, bodyImageUri);
+    return placeholder;
+  }, [mutateAvatarProfile]);
+
+  const renderDigitalTryOn = useCallback(async (options: {
+    outfitId?: string;
+    closetItemIds?: string[];
+    source: 'outfit_builder' | 'fit_check';
+  }) => {
+    if (!avatarProfile || avatarProfile.status !== 'ready') {
+      throw new Error('Digital Twin is not ready');
+    }
+
+    const selectedItems = options.closetItemIds
+      ? closetItems.filter((item) => options.closetItemIds?.includes(item.id))
+      : [];
+
+    const placeholder: VirtualTryOnRender = {
+      id: `render-${Date.now()}`,
+      avatarId: avatarProfile.id,
+      outfitId: options.outfitId,
+      closetItemIds: options.closetItemIds,
+      source: options.source,
+      createdAt: new Date().toISOString(),
+      renderImageUri: '',
+      status: 'processing',
+    };
+    const nextRenders = [placeholder, ...virtualTryOnRenders].slice(0, 30);
+    setVirtualTryOnRenders(nextRenders);
+    mutateTryOnRenders(nextRenders);
+
+    enqueueTryOnRenderJob(
+      placeholder.id,
+      avatarProfile,
+      options.source,
+      selectedItems,
+      options.outfitId
+    );
+    return placeholder;
+  }, [avatarProfile, closetItems, mutateTryOnRenders, virtualTryOnRenders]);
+
+  const deleteDigitalTwin = useCallback(async () => {
+    await deleteAvatarFiles(avatarProfile, virtualTryOnRenders);
+    setAvatarProfile(null);
+    setVirtualTryOnRenders([]);
+    mutateAvatarProfile(null);
+    mutateTryOnRenders([]);
+  }, [avatarProfile, mutateAvatarProfile, mutateTryOnRenders, virtualTryOnRenders]);
+
   const clearAllData = useCallback(async () => {
     await AsyncStorage.multiRemove([
       PREFERENCES_KEY, 
@@ -1127,6 +1743,25 @@ export const [AppProvider, useApp] = createContextHook(() => {
       GAMIFICATION_STORAGE_KEY,
       INSPIRE_STATE_KEY,
       INSPIRE_SWIPES_KEY,
+      ONBOARDING_COMPLETED_KEY,
+      ONBOARDING_STEP_KEY,
+      ONBOARDING_ANSWERS_KEY,
+      ONBOARDING_PHOTO_TAKEN_KEY,
+      ONBOARDING_AHA_SHOWN_KEY,
+      ONBOARDING_IMAGE_URI_KEY,
+      REVIEW_PROMPTED_KEY,
+      ONBOARDING_PLAN_KEY,
+      AVATAR_PROFILE_KEY,
+      TRYON_RENDERS_KEY,
+      MARKETPLACE_LISTINGS_KEY,
+      MARKETPLACE_SEARCH_QUERIES_KEY,
+      DEMAND_NOTIFICATIONS_KEY,
+      IMPORTED_OUTFITS_KEY,
+      MARKETPLACE_ORDERS_KEY,
+      SELLER_PROFILES_KEY,
+      DEMAND_SIGNALS_KEY,
+      SELL_OPPORTUNITIES_KEY,
+      SELL_OPP_LAST_NOTIFICATION_AT_KEY,
     ]);
     setPreferences(defaultPreferences);
     setSavedLooks([]);
@@ -1148,10 +1783,130 @@ export const [AppProvider, useApp] = createContextHook(() => {
     setRecreatedOutfits([]);
     setComposedOutfits([]);
     setGamificationState(DEFAULT_GAMIFICATION_STATE);
+    setAvatarProfile(null);
+    setVirtualTryOnRenders([]);
+    setMarketplaceListings([]);
+    setMarketplaceSearchQueries([]);
+    setDemandNotifications([]);
+    setImportedOutfits([]);
+    setMarketplaceOrders([]);
+    setSellerProfiles([]);
+    setDemandSignals([]);
+    setSellOpportunities([]);
+    setLastSellOpportunityNotificationAt(null);
     setUserId(null);
     setIsGuest(true);
     queryClient.invalidateQueries();
   }, [queryClient]);
+
+  useEffect(() => {
+    if (marketplaceSearchQueries.length === 0) return;
+    const signals = aggregateDemandSignals(marketplaceSearchQueries);
+    setDemandSignals(signals);
+    persistDemandSignals(signals);
+  }, [marketplaceSearchQueries, persistDemandSignals]);
+
+  useEffect(() => {
+    if (demandSignals.length === 0) {
+      if (sellOpportunities.length === 0) return;
+      setSellOpportunities([]);
+      persistSellOpportunities([]);
+      return;
+    }
+
+    const computed = findSellOpportunities(closetItems, demandSignals);
+    const dismissedByKey = new Map(
+      sellOpportunities.map((item) => [`${item.closetItemId}:${item.demandSignalId || ''}`, item.dismissedUntil])
+    );
+    const merged = computed.map((item) => ({
+      ...item,
+      dismissedUntil: dismissedByKey.get(`${item.closetItemId}:${item.demandSignalId || ''}`) || item.dismissedUntil,
+    }));
+    const hasChanged = JSON.stringify(merged) !== JSON.stringify(sellOpportunities);
+    if (!hasChanged) return;
+    setSellOpportunities(merged);
+    persistSellOpportunities(merged);
+  }, [closetItems, demandSignals, persistSellOpportunities, sellOpportunities]);
+
+  useEffect(() => {
+    if (sellOpportunities.length === 0) return;
+    const topOpportunity = sellOpportunities.find((item) => item.demandLevel === 'high');
+    if (!topOpportunity) return;
+    const closetItem = closetItems.find((item) => item.id === topOpportunity.closetItemId);
+    const shouldNotify = maybeSendSellOpportunityNotification({
+      opportunity: topOpportunity,
+      closetItem,
+      lastNotificationAt: lastSellOpportunityNotificationAt || undefined,
+    });
+    if (!shouldNotify || !closetItem) return;
+    const signal = demandSignals.find((entry) => entry.id === topOpportunity.demandSignalId);
+    const queryKey = signal?.normalizedQuery || `${closetItem.id}:sell-opportunity`;
+    const exists = demandNotifications.some((item) => item.queryKey === queryKey && item.closetItemId === closetItem.id);
+    if (!exists) {
+      const nextNotifications = [
+        {
+          id: `sell_alert_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          createdAt: new Date().toISOString(),
+          closetItemId: closetItem.id,
+          queryKey,
+          message: 'High demand alert: users are looking for an item you own.',
+          demandLevel: demandLevelFromScore(signal?.demandScore || 100),
+          estimatedResaleValue: topOpportunity.estimatedResaleValue || closetItem.estimatedResaleValue || estimateResaleValue(closetItem),
+          seen: false,
+        },
+        ...demandNotifications,
+      ].slice(0, 100);
+      setDemandNotifications(nextNotifications);
+      persistDemandNotifications(nextNotifications);
+    }
+    const nowIso = new Date().toISOString();
+    setLastSellOpportunityNotificationAt(nowIso);
+    persistSellOpportunityNotificationAt(nowIso);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }, [
+    closetItems,
+    demandNotifications,
+    demandSignals,
+    lastSellOpportunityNotificationAt,
+    persistDemandNotifications,
+    persistSellOpportunityNotificationAt,
+    sellOpportunities,
+  ]);
+
+  useEffect(() => {
+    if (marketplaceSearchQueries.length === 0) return;
+    const newNotifications = runDemandSupplyMatcher({
+      demandInsights,
+      listings: marketplaceListings,
+      closetItems,
+      existingNotifications: demandNotifications,
+    });
+    if (newNotifications.length === 0) return;
+    const next = [...newNotifications, ...demandNotifications].slice(0, 100);
+    setDemandNotifications(next);
+    persistDemandNotifications(next);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }, [
+    closetItems,
+    demandInsights,
+    closetValueInsights,
+    stylePersonalityInsights,
+    demandNotifications,
+    marketplaceListings,
+    marketplaceSearchQueries.length,
+    persistDemandNotifications,
+  ]);
+
+  useEffect(() => {
+    const staleShipped = marketplaceOrders.filter((order) => canAutoCompleteOrder(order));
+    if (staleShipped.length === 0) return;
+    const staleIds = new Set(staleShipped.map((order) => order.id));
+    const next = marketplaceOrders.map((order) =>
+      staleIds.has(order.id) ? { ...order, status: 'completed' as const } : order
+    );
+    setMarketplaceOrders(next);
+    persistMarketplaceOrders(next);
+  }, [marketplaceOrders, persistMarketplaceOrders]);
 
   const themeColors = useMemo<ColorTheme>(() => {
     return getColorsForGender(preferences.gender);
@@ -1159,7 +1914,55 @@ export const [AppProvider, useApp] = createContextHook(() => {
 
   const isLoading = preferencesQuery.isLoading || looksQuery.isLoading || userQuery.isLoading || closetQuery.isLoading;
 
-  setQueueUpdater(updateClosetItem);
+  useEffect(() => {
+    setQueueUpdater(updateClosetItem);
+    setQueueRemover(removeClosetItem);
+  }, [removeClosetItem, updateClosetItem]);
+
+  useEffect(() => {
+    setTwinQueueHandlers({
+      onAvatarJobSuccess: (_, avatar) => {
+        setAvatarProfile(avatar);
+        mutateAvatarProfile(avatar);
+      },
+      onAvatarJobError: (avatarId, message) => {
+        setAvatarProfile((prev) => {
+          if (!prev || prev.id !== avatarId) return prev;
+          const failed: AvatarProfile = { ...prev, status: 'error', errorMessage: message };
+          mutateAvatarProfile(failed);
+          return failed;
+        });
+      },
+      onTryOnJobSuccess: (renderId, render) => {
+        setVirtualTryOnRenders((prev) => {
+          const updated = prev
+            .map((item): VirtualTryOnRender => (
+              item.id === renderId ? { ...render, status: 'ready' } : item
+            ))
+            .slice(0, 30);
+          mutateTryOnRenders(updated);
+          return updated;
+        });
+        setAvatarProfile((prev) => {
+          if (!prev) return prev;
+          const nextAvatar = { ...prev, lastRenderAt: render.createdAt };
+          mutateAvatarProfile(nextAvatar);
+          return nextAvatar;
+        });
+      },
+      onTryOnJobError: (renderId, message) => {
+        setVirtualTryOnRenders((prev) => {
+          const updated = prev
+            .map((item): VirtualTryOnRender => (
+              item.id === renderId ? { ...item, status: 'error', errorMessage: message } : item
+            ))
+            .slice(0, 30);
+          mutateTryOnRenders(updated);
+          return updated;
+        });
+      },
+    });
+  }, [mutateAvatarProfile, mutateTryOnRenders]);
 
   return {
     preferences,
@@ -1182,6 +1985,21 @@ export const [AppProvider, useApp] = createContextHook(() => {
     notificationSettings,
     creatorSettings,
     currentWeather,
+    avatarProfile,
+    virtualTryOnRenders,
+    marketplaceListings,
+    marketplaceSearchQueries,
+    demandNotifications,
+    demandSignals,
+    sellOpportunities,
+    highDemandSellOpportunities,
+    demandInsights,
+    closetValueInsights,
+    stylePersonalityInsights,
+    importedOutfits,
+    marketplaceOrders,
+    sellerProfiles,
+    cleanupCandidates,
     gamificationState,
     wardrobeCoverageMap,
     badgeDefinitions: BADGE_DEFINITIONS,
@@ -1210,6 +2028,25 @@ export const [AppProvider, useApp] = createContextHook(() => {
     updateClosetItemUsage,
     getClosetItemsByCategory,
     getClosetItemById,
+    createMarketplaceListing,
+    updateMarketplaceListing,
+    getMarketplaceListingById,
+    getSellerProfileByUserId,
+    trackMarketplaceSearch,
+    trackMarketplaceSearchQuery,
+    getSellOpportunityForItem,
+    dismissSellOpportunity,
+    markDemandNotificationSeen,
+    saveImportedOutfit,
+    importOutfitFromShare,
+    getImportedOutfitById,
+    upsertSellerProfile,
+    createMarketplaceOrder,
+    updateMarketplaceOrder,
+    processMarketplacePayment,
+    addTrackingToOrder,
+    confirmMarketplaceDelivery,
+    getMarketplaceOrderById,
     toggleSaveInspiration,
     isInspirationSaved,
     savePinterestPin,
@@ -1243,6 +2080,9 @@ export const [AppProvider, useApp] = createContextHook(() => {
     onOutfitSaved,
     resetGamification,
     initializeUser,
+    createDigitalTwin,
+    renderDigitalTryOn,
+    deleteDigitalTwin,
     clearAllData,
   };
 });

@@ -19,7 +19,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react-native';
-import colors from '@/constants/colors';
+import appColors from '@/constants/Colors';
 import { useApp } from '@/contexts/AppContext';
 import { AlternativeLook } from '@/types';
 import { Button } from '@/components/Button';
@@ -108,11 +108,11 @@ export default function LookDetailScreen() {
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.header}>
           <TouchableOpacity style={styles.headerBtn} onPress={() => router.back()}>
-            <ArrowLeft size={20} color={colors.text} />
+            <ArrowLeft size={20} color={appColors.text} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Look Details</Text>
           <TouchableOpacity style={styles.headerBtn} onPress={handleDelete}>
-            <Trash2 size={20} color={colors.error} />
+            <Trash2 size={20} color={appColors.error} />
           </TouchableOpacity>
         </View>
 
@@ -131,11 +131,11 @@ export default function LookDetailScreen() {
             </View>
             <View style={styles.summaryCard}>
               <View style={styles.dateRow}>
-                <Calendar size={14} color={colors.textLight} />
+                <Calendar size={14} color={appColors.textLight} />
                 <Text style={styles.dateText}>{formatDate(look.createdAt)}</Text>
               </View>
               <View style={styles.vibeRow}>
-                <Sparkles size={16} color={colors.primary} />
+                <Sparkles size={16} color={appColors.primary} />
                 <Text style={styles.vibeLabel}>Your vibe</Text>
               </View>
               <ScoreDisplay score={look.results.fitScore} />
@@ -164,16 +164,16 @@ export default function LookDetailScreen() {
 
           <SuggestionCard
             title="Quick Fixes (No Shopping)"
-            icon={<Zap size={20} color={colors.success} />}
+            icon={<Zap size={20} color={appColors.success} />}
             items={look.results.quickFixes}
-            accentColor={colors.success}
+            accentColor={appColors.success}
           />
 
           <SuggestionCard
             title="Upgrade Ideas"
-            icon={<TrendingUp size={20} color={colors.secondary} />}
+            icon={<TrendingUp size={20} color={appColors.secondary} />}
             items={look.results.upgrades}
-            accentColor={colors.secondary}
+            accentColor={appColors.secondary}
           />
 
           <Text style={styles.sectionTitle}>Alternative Looks</Text>
@@ -184,9 +184,9 @@ export default function LookDetailScreen() {
           {look.results.avoid.length > 0 && (
             <SuggestionCard
               title="Things to Avoid"
-              icon={<AlertCircle size={20} color={colors.error} />}
+              icon={<AlertCircle size={20} color={appColors.error} />}
               items={look.results.avoid}
-              accentColor={colors.error}
+              accentColor={appColors.error}
             />
           )}
 
@@ -196,7 +196,7 @@ export default function LookDetailScreen() {
               onPress={handleShare}
               variant="outline"
               size="medium"
-              icon={<Share2 size={18} color={colors.primary} />}
+              icon={<Share2 size={18} color={appColors.primary} />}
               style={styles.actionBtn}
             />
             <Button
@@ -204,7 +204,7 @@ export default function LookDetailScreen() {
               onPress={handleRescan}
               variant="primary"
               size="medium"
-              icon={<RefreshCw size={18} color={colors.text} />}
+              icon={<RefreshCw size={18} color={appColors.text} />}
               style={styles.actionBtn}
             />
           </View>
@@ -225,13 +225,13 @@ function AlternativeLookCard({ look }: { look: AlternativeLook }) {
         activeOpacity={0.7}
       >
         <View style={styles.altLookIcon}>
-          <Shirt size={18} color={colors.primary} />
+          <Shirt size={18} color={appColors.primary} />
         </View>
         <Text style={styles.altLookTitle}>{look.title}</Text>
         {expanded ? (
-          <ChevronUp size={18} color={colors.textSecondary} />
+          <ChevronUp size={18} color={appColors.textSecondary} />
         ) : (
-          <ChevronDown size={18} color={colors.textSecondary} />
+          <ChevronDown size={18} color={appColors.textSecondary} />
         )}
       </TouchableOpacity>
 
@@ -258,12 +258,12 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.background,
+    backgroundColor: appColors.background,
     padding: 24,
   },
   notFoundText: {
     fontSize: 18,
-    color: colors.textSecondary,
+    color: appColors.textSecondary,
     marginBottom: 24,
   },
   safeArea: {
@@ -280,14 +280,14 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: colors.card,
+    backgroundColor: appColors.card,
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: '600' as const,
-    color: colors.text,
+    color: appColors.text,
   },
   scrollView: {
     flex: 1,
@@ -322,7 +322,7 @@ const styles = StyleSheet.create({
   },
   dateText: {
     fontSize: 12,
-    color: colors.textLight,
+    color: appColors.textLight,
     marginLeft: 6,
   },
   vibeRow: {
@@ -332,7 +332,7 @@ const styles = StyleSheet.create({
   },
   vibeLabel: {
     fontSize: 14,
-    color: colors.textSecondary,
+    color: appColors.textSecondary,
     marginLeft: 6,
   },
   tags: {
@@ -348,18 +348,18 @@ const styles = StyleSheet.create({
   },
   summaryBox: {
     marginBottom: 16,
-    backgroundColor: colors.primary + '15',
+    backgroundColor: appColors.primary + '15',
   },
   summary: {
     fontSize: 16,
     lineHeight: 24,
-    color: colors.text,
+    color: appColors.text,
     fontWeight: '500' as const,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600' as const,
-    color: colors.text,
+    color: appColors.text,
     marginTop: 8,
     marginBottom: 12,
   },
@@ -374,7 +374,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 10,
-    backgroundColor: colors.primary + '20',
+    backgroundColor: appColors.primary + '20',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -383,13 +383,13 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     fontWeight: '600' as const,
-    color: colors.text,
+    color: appColors.text,
   },
   altLookContent: {
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: colors.borderLight,
+    borderTopColor: appColors.borderLight,
   },
   altLookItem: {
     flexDirection: 'row',
@@ -400,19 +400,19 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: colors.primary,
+    backgroundColor: appColors.primary,
     marginTop: 6,
     marginRight: 10,
   },
   altLookItemText: {
     flex: 1,
     fontSize: 14,
-    color: colors.textSecondary,
+    color: appColors.textSecondary,
     lineHeight: 20,
   },
   altLookWhy: {
     fontSize: 13,
-    color: colors.textLight,
+    color: appColors.textLight,
     fontStyle: 'italic',
     marginTop: 8,
   },

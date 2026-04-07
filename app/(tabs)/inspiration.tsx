@@ -1,8 +1,13 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
+  Dimensions,
+  FlatList,
+  Linking,
   Modal,
+  RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -11,417 +16,456 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
-import * as Linking from 'expo-linking';
-import { Bookmark, BookmarkCheck, Minus, Plus, SlidersHorizontal } from 'lucide-react-native';
-import { palette, radius, shadow, space, type as typo } from '@/constants/theme';
-import { PressableScale } from '@/components/PressableScale';
-import { Toast } from '@/components/Toast';
-import { InspireSwipeDeck, InspireSwipeDeckHandle } from '@/components/InspireSwipeDeck';
-import { InspireWalkthrough } from '@/components/InspireWalkthrough';
-import { fetchInspiration, prefetchInspirationImages } from '@/lib/inspirationFeed';
+import { Bookmark, ExternalLink, Heart } from 'lucide-react-native';
 import { useApp } from '@/contexts/AppContext';
-import { InspirationCard, SwipeAction } from '@/types/inspiration';
+import { rankAndShuffleInspiration } from '@/lib/inspirationRanking';
+import { loadSeedDataset } from '@/lib/inspirationSeed';
+import { applyLikeToMap, applySaveToMap, getPinFeedbackMap, persistPinFeedbackMap } from '@/lib/pinFeedbackStore';
+import {
+  getTopPreferences,
+  getUserStyleProfile,
+  TopPreferences,
+  updatePreferencesFromLike,
+  updatePreferencesFromUnlike,
+} from '@/lib/preferenceModel';
+import { Gender, InspirationItem, PinFeedback } from '@/types/inspiration';
+import { palette, radius, shadow, space, type as typo } from '@/constants/theme';
+import { Toast } from '@/components/Toast';
 
-const WALKTHROUGH_KEY = 'mirrormuse_inspire_walkthrough_seen_v1';
-const BUFFER_TARGET = 12;
-const BUFFER_LOW_WATERMARK = 6;
+const { width } = Dimensions.get('window');
+const PADDING = 10;
+const GAP = 8;
+const NUM_COLUMNS = 2;
+const ITEM_WIDTH = (width - PADDING * 2 - GAP) / NUM_COLUMNS;
 
-function whyThisWorks(card: InspirationCard) {
-  const tag = card.tags?.[0] || 'Balanced styling';
-  const occasion = card.occasion || 'Daily wear';
-  return `${tag} lines, clean proportions, and a wearable palette make this a strong ${occasion.toLowerCase()} reference.`;
+const FILTER_CHIPS = ['Minimal', 'Work', 'Date', 'Streetwear', 'Old Money', 'Formal', 'Summer', 'Winter'] as const;
+const SESSION_SEEDS: Partial<Record<Gender, string>> = {};
+
+type FilterChip = typeof FILTER_CHIPS[number] | null;
+
+type MasonryItem = InspirationItem & { cardHeight: number };
+
+const EMPTY_TOP_PREFERENCES: TopPreferences = {
+  topVibes: [],
+  topOccasion: null,
+  topSeason: null,
+};
+
+const InspirationCardTile = React.memo(function InspirationCardTile({
+  item,
+  liked,
+  saved,
+  onPress,
+}: {
+  item: MasonryItem;
+  liked: boolean;
+  saved: boolean;
+  onPress: (item: InspirationItem) => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={[styles.card, { height: item.cardHeight }]}
+      activeOpacity={0.86}
+      onPress={() => onPress(item)}
+    >
+      <Image source={{ uri: item.imageUrl }} style={styles.cardImage} contentFit="cover" />
+      <View style={styles.cardStateRow}>
+        <View style={[styles.cardStateBadge, liked && styles.cardStateBadgeActive]}>
+          <Heart size={13} color={liked ? palette.white : palette.ink} fill={liked ? palette.white : 'transparent'} />
+        </View>
+        <View style={[styles.cardStateBadge, saved && styles.cardStateBadgeActive]}>
+          <Bookmark size={13} color={saved ? palette.white : palette.ink} fill={saved ? palette.white : 'transparent'} />
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+});
+
+function getHeightForId(id: string) {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = (hash * 31 + id.charCodeAt(i)) | 0;
+  }
+  const variants = [1.42, 1.62, 1.86, 2.14, 2.38];
+  return Math.round(ITEM_WIDTH * variants[Math.abs(hash) % variants.length]);
 }
 
-function keyPieces(card: InspirationCard) {
-  const base = card.tags?.[0]?.toLowerCase();
-  if (base?.includes('street')) return ['Overshirt', 'Relaxed trousers', 'Low-profile sneakers'];
-  if (base?.includes('formal') || base?.includes('work')) return ['Structured layer', 'Straight pants', 'Leather shoes'];
-  if (base?.includes('gym') || base?.includes('athleisure')) return ['Technical top', 'Clean joggers', 'Sport sneakers'];
-  return ['Top layer', 'Balanced bottom', 'Neutral shoes'];
+function matchesChip(item: InspirationItem, chip: FilterChip) {
+  if (!chip) return true;
+  const normalizedTags = item.vibeTags.map((tag) => tag.toLowerCase());
+  const lowerChip = chip.toLowerCase();
+  if (chip === 'Work') return item.occasion === 'work';
+  if (chip === 'Date') return item.occasion === 'date';
+  if (chip === 'Streetwear') return item.occasion === 'streetwear' || normalizedTags.includes('streetwear');
+  if (chip === 'Formal') return item.occasion === 'formal';
+  if (chip === 'Summer') return item.season === 'summer';
+  if (chip === 'Winter') return item.season === 'winter';
+  return normalizedTags.includes(lowerChip);
+}
+
+function buildColumns(items: InspirationItem[]): { left: MasonryItem[]; right: MasonryItem[] } {
+  const left: MasonryItem[] = [];
+  const right: MasonryItem[] = [];
+  let leftHeight = 0;
+  let rightHeight = 0;
+
+  for (const item of items) {
+    const cardHeight = getHeightForId(item.id);
+    const nextItem: MasonryItem = { ...item, cardHeight };
+    if (leftHeight <= rightHeight) {
+      left.push(nextItem);
+      leftHeight += cardHeight + GAP;
+    } else {
+      right.push(nextItem);
+      rightHeight += cardHeight + GAP;
+    }
+  }
+
+  return { left, right };
+}
+
+function createSessionSalt() {
+  return Math.random().toString(36).slice(2, 10);
 }
 
 export default function InspirationScreen() {
   const {
     preferences,
-    inspirationGender,
-    inspirationQueue,
-    inspirationCalibration,
-    inspirationTagWeights,
-    setInspirationGenderPreference,
-    setInspirationFeedQueue,
-    appendInspirationFeedQueue,
-    recordInspirationSwipe,
     toggleInspirationSaved,
     isInspirationCardSaved,
-    closetItems,
+    isInspirationLiked,
+    recordInspirationSwipe,
+    inspirationSaves,
+    savedInspirationItems,
+    removeInspirationItem,
   } = useApp();
 
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [cursor, setCursor] = useState<string | undefined>(undefined);
+  const [selectedGender, setSelectedGender] = useState<Gender>('women');
+  const [activeChip, setActiveChip] = useState<FilterChip>(null);
+  const [selectedItem, setSelectedItem] = useState<InspirationItem | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isFetchingMore, setIsFetchingMore] = useState(false);
-  const [selectedCard, setSelectedCard] = useState<InspirationCard | null>(null);
-  const [showWalkthrough, setShowWalkthrough] = useState(false);
-  const [toast, setToast] = useState<{ visible: boolean; message: string; tone: 'info' | 'success' | 'warning' }>({
-    visible: false,
-    message: '',
-    tone: 'info',
-  });
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [feedbackMap, setFeedbackMap] = useState<Record<string, PinFeedback>>({});
+  const [topPreferences, setTopPreferences] = useState<TopPreferences>(EMPTY_TOP_PREFERENCES);
+  const [sessionSalt, setSessionSalt] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ visible: boolean; message: string }>({ visible: false, message: '' });
+  const likePop = useRef(new Animated.Value(1)).current;
 
-  const deckRef = useRef<InspireSwipeDeckHandle>(null);
-  const calibrationRef = useRef(inspirationCalibration.progress);
-  const fetchingRef = useRef(false);
-  const fetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const profileGender = useMemo<'men' | 'women' | null>(() => {
+  const profileGender = useMemo<Gender | null>(() => {
     if (preferences.gender === 'male') return 'men';
     if (preferences.gender === 'female') return 'women';
     return null;
   }, [preferences.gender]);
 
-  const effectiveGender = profileGender ?? inspirationGender;
-  const shouldShowSegmented = profileGender === null;
-  const activeCard = inspirationQueue[activeIndex];
-
-  const preferenceQuery = useMemo(() => {
-    return Object.entries(inspirationTagWeights)
-      .filter(([, value]) => value > 0)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 2)
-      .map(([tag]) => tag)
-      .join(' ');
-  }, [inspirationTagWeights]);
-
-  const flashToast = useCallback((message: string, tone: 'info' | 'success' | 'warning' = 'info') => {
-    setToast({ visible: true, message, tone });
-    setTimeout(() => {
-      setToast((prev) => ({ ...prev, visible: false }));
-    }, 1400);
-  }, []);
-
-  const dismissWalkthrough = useCallback(async () => {
-    setShowWalkthrough(false);
-    try {
-      await AsyncStorage.setItem(WALKTHROUGH_KEY, 'true');
-    } catch (error) {
-      console.log('[Inspire] Failed to persist walkthrough state:', error);
-    }
-  }, []);
-
-  const logEvent = useCallback((name: string, payload?: Record<string, unknown>) => {
-    console.log(`[analytics] ${name}`, payload || {});
-  }, []);
-
-  const loadInitialFeed = useCallback(async (reset = false) => {
-    try {
-      setIsLoading(true);
-      const response = await fetchInspiration(effectiveGender, preferenceQuery || undefined, undefined);
-      setInspirationFeedQueue(response.items);
-      setCursor(response.nextCursor);
-      setActiveIndex(0);
-      logEvent('inspire_view', { count: response.items.length, gender: effectiveGender });
-      if (reset) {
-        flashToast('Feed refreshed', 'info');
-      }
-    } catch (error) {
-      console.log('[Inspire] Failed to load initial feed:', error);
-      flashToast('Could not load inspiration', 'warning');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [effectiveGender, flashToast, logEvent, preferenceQuery, setInspirationFeedQueue]);
-
-  const fetchMore = useCallback(async () => {
-    if (fetchingRef.current) return;
-    const remaining = inspirationQueue.length - activeIndex;
-    if (remaining >= BUFFER_LOW_WATERMARK) return;
-
-    fetchingRef.current = true;
-    setIsFetchingMore(true);
-    try {
-      const response = await fetchInspiration(effectiveGender, preferenceQuery || undefined, cursor);
-      appendInspirationFeedQueue(response.items);
-      setCursor(response.nextCursor);
-    } catch (error) {
-      console.log('[Inspire] Failed to fetch more:', error);
-    } finally {
-      fetchingRef.current = false;
-      setIsFetchingMore(false);
-    }
-  }, [activeIndex, appendInspirationFeedQueue, cursor, effectiveGender, inspirationQueue.length, preferenceQuery]);
+  const activeGender = profileGender ?? selectedGender;
 
   useEffect(() => {
-    AsyncStorage.getItem(WALKTHROUGH_KEY)
-      .then((value) => {
-        if (value !== 'true') {
-          setShowWalkthrough(true);
+    if (profileGender) {
+      setSelectedGender(profileGender);
+    }
+  }, [profileGender]);
+
+  useEffect(() => {
+    let mounted = true;
+    getPinFeedbackMap().then((map) => {
+      if (mounted) {
+        setFeedbackMap(map);
+      }
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    setSessionSalt(null);
+    if (!SESSION_SEEDS[activeGender]) {
+      SESSION_SEEDS[activeGender] = createSessionSalt();
+    }
+    setSessionSalt(SESSION_SEEDS[activeGender] || createSessionSalt());
+  }, [activeGender]);
+
+  useEffect(() => {
+    let mounted = true;
+    getUserStyleProfile()
+      .then((profile) => {
+        if (mounted) {
+          setTopPreferences(getTopPreferences(profile));
         }
       })
       .catch((error) => {
-        console.log('[Inspire] Failed to read walkthrough state:', error);
+        console.log('[Inspiration] Failed to load style preferences:', error);
       });
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
+  const showToast = useCallback((message: string) => {
+    setToast({ visible: true, message });
+    setTimeout(() => setToast({ visible: false, message: '' }), 1400);
+  }, []);
+
+  const fullDataset = useMemo(() => loadSeedDataset(activeGender), [activeGender]);
+
+  const baseSeed = useMemo(() => {
+    const userScope = preferences.gender || 'anon';
+    return `${userScope}:${activeGender}`;
+  }, [activeGender, preferences.gender]);
+
+  const orderedDataset = useMemo(() => {
+    if (!sessionSalt) return [];
+    return rankAndShuffleInspiration(fullDataset, topPreferences, `${baseSeed}:${sessionSalt}`);
+  }, [baseSeed, fullDataset, sessionSalt, topPreferences]);
+
+  const filteredItems = useMemo(() => {
+    const filtered = orderedDataset.filter((item) => matchesChip(item, activeChip));
+    return filtered.length > 0 ? filtered : orderedDataset;
+  }, [activeChip, orderedDataset]);
+
+  const columns = useMemo(() => buildColumns(filteredItems), [filteredItems]);
+
   useEffect(() => {
-    if (profileGender && profileGender !== inspirationGender) {
-      setInspirationGenderPreference(profileGender);
+    if (!sessionSalt) return;
+    setIsLoading(true);
+    const urls = filteredItems.slice(0, 12).map((item) => item.imageUrl);
+    Image.prefetch(urls)
+      .catch(() => {})
+      .finally(() => setIsLoading(false));
+  }, [filteredItems, sessionSalt]);
+
+  const openDetail = useCallback((item: InspirationItem) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSelectedItem(item);
+  }, []);
+
+  const animateLike = useCallback(() => {
+    likePop.stopAnimation();
+    likePop.setValue(0.94);
+    Animated.sequence([
+      Animated.timing(likePop, { toValue: 1.08, duration: 120, useNativeDriver: true }),
+      Animated.timing(likePop, { toValue: 1, duration: 140, useNativeDriver: true }),
+    ]).start();
+  }, [likePop]);
+
+  const persistFeedback = useCallback((nextMap: Record<string, PinFeedback>) => {
+    persistPinFeedbackMap(nextMap).catch(() => {});
+  }, []);
+
+  const handleLikeToggle = useCallback((item: InspirationItem) => {
+    const currentlyLiked = Boolean(feedbackMap[item.id]?.likedAt) || isInspirationLiked(item.id);
+    const willLike = !currentlyLiked;
+    const nextMap = applyLikeToMap(feedbackMap, item, willLike);
+
+    setFeedbackMap(nextMap);
+    persistFeedback(nextMap);
+    animateLike();
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    recordInspirationSwipe(item, willLike ? 'like' : 'dislike');
+
+    if (willLike) {
+      updatePreferencesFromLike(item).catch(() => {});
+      showToast('Liked');
+    } else {
+      updatePreferencesFromUnlike(item).catch(() => {});
+      showToast('Removed like');
     }
-  }, [inspirationGender, profileGender, setInspirationGenderPreference]);
+  }, [animateLike, feedbackMap, isInspirationLiked, persistFeedback, recordInspirationSwipe, showToast]);
 
-  useEffect(() => {
-    loadInitialFeed();
-  }, [loadInitialFeed]);
+  const saveItem = useCallback((item: InspirationItem) => {
+    const currentlySaved = Boolean(feedbackMap[item.id]?.savedAt) || isInspirationCardSaved(item.id);
+    const willSave = !currentlySaved;
+    const nextMap = applySaveToMap(feedbackMap, item, willSave);
 
-  useEffect(() => {
-    if (inspirationQueue.length > 0) {
-      prefetchInspirationImages(inspirationQueue, activeIndex + 1).catch(() => {});
-    }
-  }, [activeIndex, inspirationQueue]);
+    setFeedbackMap(nextMap);
+    persistFeedback(nextMap);
 
-  useEffect(() => {
-    if (fetchDebounceRef.current) clearTimeout(fetchDebounceRef.current);
-    fetchDebounceRef.current = setTimeout(() => {
-      fetchMore();
-    }, 140);
-    return () => {
-      if (fetchDebounceRef.current) clearTimeout(fetchDebounceRef.current);
-    };
-  }, [activeIndex, fetchMore]);
-
-  useEffect(() => {
-    if (inspirationQueue.length > 30 && activeIndex > 12) {
-      setInspirationFeedQueue(inspirationQueue.slice(activeIndex));
-      setActiveIndex(0);
-    }
-  }, [activeIndex, inspirationQueue, setInspirationFeedQueue]);
-
-  useEffect(() => {
-    if (calibrationRef.current < inspirationCalibration.progress && inspirationCalibration.isCalibrated) {
-      flashToast('Style profile updated', 'success');
-      logEvent('inspire_calibration_complete');
-      loadInitialFeed(true);
-    }
-    calibrationRef.current = inspirationCalibration.progress;
-  }, [flashToast, inspirationCalibration.isCalibrated, inspirationCalibration.progress, loadInitialFeed, logEvent]);
-
-  const recreateCoverage = useMemo(() => {
-    if (!activeCard || closetItems.length === 0) return null;
-    const categories = ['top', 'shirt', 'pants', 'jeans', 'sneakers', 'shoes'];
-    const closetMatches = closetItems.filter((item) =>
-      categories.some((key) => item.category.toLowerCase().includes(key))
-    ).length;
-    const pct = Math.max(20, Math.min(95, Math.round((closetMatches / Math.max(closetItems.length, 1)) * 100)));
-    return `${pct}%`;
-  }, [activeCard, closetItems]);
-
-  const handleSwipe = useCallback((action: SwipeAction, card: InspirationCard) => {
-    if (showWalkthrough) {
-      dismissWalkthrough();
-    }
-
-    recordInspirationSwipe(card, action);
-    const eventName =
-      action === 'like'
-        ? 'inspire_swipe_like'
-        : action === 'dislike'
-          ? 'inspire_swipe_dislike'
-          : action === 'save'
-            ? 'inspire_swipe_save'
-            : 'inspire_swipe_similar';
-    logEvent(eventName, { cardId: card.id, gender: card.gender, tags: card.tags || [] });
-
-    if (action === 'save') {
+    if (willSave) {
+      toggleInspirationSaved(item);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      flashToast(recreateCoverage ? `Saved • You can recreate ~${recreateCoverage}` : 'Saved to inspiration', 'success');
-    }
-    if (action === 'like' || action === 'dislike') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      showToast('Saved to inspiration');
+      return;
     }
 
-    if (action === 'similar' && card.tags?.[0]) {
-      fetchInspiration(effectiveGender, card.tags[0], undefined)
-        .then((response) => {
-          appendInspirationFeedQueue(response.items);
-          flashToast(`More ${card.tags?.[0]} looks`, 'info');
-        })
-        .catch((error) => {
-          console.log('[Inspire] Similar fetch failed:', error);
-        });
+    if (inspirationSaves.includes(item.id)) {
+      toggleInspirationSaved(item);
     }
-
-    setActiveIndex((prev) => prev + 1);
-  }, [appendInspirationFeedQueue, dismissWalkthrough, effectiveGender, flashToast, logEvent, recordInspirationSwipe, recreateCoverage, showWalkthrough]);
-
-  const handleSaveActive = useCallback(() => {
-    if (!activeCard) return;
-    const alreadySaved = isInspirationCardSaved(activeCard.id);
-    toggleInspirationSaved(activeCard);
-    flashToast(alreadySaved ? 'Removed from saved inspiration' : 'Saved inspiration', 'success');
-    if (!alreadySaved) {
-      recordInspirationSwipe(activeCard, 'save');
-      logEvent('inspire_swipe_save', { cardId: activeCard.id, via: 'button' });
+    const savedItem = savedInspirationItems.find((entry) => entry.inspirationId === item.id);
+    if (savedItem) {
+      removeInspirationItem(savedItem.id);
     }
-  }, [activeCard, flashToast, isInspirationCardSaved, logEvent, recordInspirationSwipe, toggleInspirationSaved]);
+    showToast('Removed from inspiration');
+  }, [feedbackMap, inspirationSaves, isInspirationCardSaved, persistFeedback, removeInspirationItem, savedInspirationItems, showToast, toggleInspirationSaved]);
 
-  const handleFindSimilar = useCallback(async (card: InspirationCard) => {
-    logEvent('inspire_swipe_similar', { cardId: card.id, via: 'detail' });
-    recordInspirationSwipe(card, 'similar');
-    try {
-      const response = await fetchInspiration(effectiveGender, card.tags?.[0], undefined);
-      setInspirationFeedQueue([...response.items, ...inspirationQueue].slice(0, BUFFER_TARGET));
-      setSelectedCard(null);
-      flashToast('Added similar looks', 'success');
-    } catch (error) {
-      console.log('[Inspire] Failed to find similar looks:', error);
-      flashToast('Could not find similar looks', 'warning');
-    }
-  }, [effectiveGender, flashToast, inspirationQueue, logEvent, recordInspirationSwipe, setInspirationFeedQueue]);
+  const handleRefresh = useCallback(() => {
+    const nextSalt = createSessionSalt();
+    setIsRefreshing(true);
+    getUserStyleProfile()
+      .then((profile) => {
+        setTopPreferences(getTopPreferences(profile));
+      })
+      .catch((error) => {
+        console.log('[Inspiration] Failed to refresh style preferences:', error);
+      })
+      .finally(() => {
+        SESSION_SEEDS[activeGender] = nextSalt;
+        setSessionSalt(nextSalt);
+      });
+    setIsRefreshing(false);
+    showToast('Refreshing your inspiration...');
+  }, [activeGender, showToast]);
 
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <View style={styles.topBar}>
-          {shouldShowSegmented ? (
-            <View style={styles.segmentWrap}>
-              {(['men', 'women'] as const).map((option) => {
-                const active = effectiveGender === option;
-                return (
-                  <TouchableOpacity
-                    key={option}
-                    style={[styles.segmentBtn, active && styles.segmentBtnActive]}
-                    activeOpacity={0.8}
-                    onPress={() => {
-                      if (active) return;
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      setInspirationGenderPreference(option);
-                    }}
-                  >
-                    <Text style={[styles.segmentText, active && styles.segmentTextActive]}>
-                      {option === 'men' ? 'Men' : 'Women'}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          ) : (
-            <View style={styles.singleGenderLabelWrap}>
-              <Text style={styles.singleGenderLabel}>{effectiveGender === 'men' ? 'Men Inspiration' : 'Women Inspiration'}</Text>
-            </View>
-          )}
-          <TouchableOpacity style={styles.filterIcon} activeOpacity={0.7}>
-            <SlidersHorizontal size={18} color={palette.inkLight} />
-          </TouchableOpacity>
-        </View>
-
-        {!inspirationCalibration.isCalibrated ? (
-          <View style={styles.calibrationBanner}>
-            <Text style={styles.calibrationTitle}>Calibrate your stylist: swipe 20 looks</Text>
-            <Text style={styles.calibrationProgress}>
-              {Math.min(inspirationCalibration.progress, inspirationCalibration.swipesToCalibrate)}/{inspirationCalibration.swipesToCalibrate}
-            </Text>
+        <View style={styles.headerRow}>
+          <View>
+            <Text style={styles.headerTitle}>Inspiration</Text>
+            <Text style={styles.headerSubtitle}>{activeGender === 'men' ? 'Men outfit ideas' : 'Women outfit ideas'}</Text>
           </View>
-        ) : null}
-
-        <View style={styles.deckArea}>
-          {isLoading ? (
-            <View style={styles.loadingWrap}>
-              <ActivityIndicator size="small" color={palette.accent} />
-              <Text style={styles.loadingText}>Loading editorial looks...</Text>
-            </View>
-          ) : (
-            <InspireSwipeDeck
-              ref={deckRef}
-              cards={inspirationQueue}
-              activeIndex={activeIndex}
-              onSwipe={handleSwipe}
-              onCardPress={(card) => {
-                logEvent('inspire_open_detail', { cardId: card.id });
-                setSelectedCard(card);
-              }}
-            />
-          )}
         </View>
 
-        <View style={styles.bottomBar}>
-          <PressableScale style={styles.actionWrap} onPress={() => deckRef.current?.swipeLeft()}>
-            <View style={styles.actionBtn}>
-              <Minus size={22} color={palette.inkLight} />
-            </View>
-          </PressableScale>
-
-          <PressableScale style={styles.actionWrap} onPress={handleSaveActive}>
-            <View style={styles.actionBtnPrimary}>
-              {activeCard && isInspirationCardSaved(activeCard.id) ? (
-                <BookmarkCheck size={20} color={palette.white} />
-              ) : (
-                <Bookmark size={20} color={palette.white} />
-              )}
-            </View>
-          </PressableScale>
-
-          <PressableScale style={styles.actionWrap} onPress={() => deckRef.current?.swipeRight()}>
-            <View style={styles.actionBtn}>
-              <Plus size={22} color={palette.inkLight} />
-            </View>
-          </PressableScale>
-        </View>
-
-        {isFetchingMore ? (
-          <View style={styles.fetchingMore}>
-            <ActivityIndicator size="small" color={palette.inkMuted} />
+        {profileGender ? null : (
+          <View style={styles.genderRow}>
+            {(['men', 'women'] as const).map((gender) => {
+              const active = selectedGender === gender;
+              return (
+                <TouchableOpacity
+                  key={gender}
+                  style={[styles.genderChip, active && styles.genderChipActive]}
+                  activeOpacity={0.8}
+                  onPress={() => setSelectedGender(gender)}
+                >
+                  <Text style={[styles.genderChipText, active && styles.genderChipTextActive]}>{gender === 'men' ? 'Men' : 'Women'}</Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
-        ) : null}
+        )}
+
+        <FlatList
+          data={FILTER_CHIPS as unknown as string[]}
+          keyExtractor={(item) => item}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipsRow}
+          renderItem={({ item }) => {
+            const active = activeChip === item;
+            return (
+              <TouchableOpacity
+                style={[styles.chip, active && styles.chipActive]}
+                activeOpacity={0.8}
+                onPress={() => setActiveChip(active ? null : (item as FilterChip))}
+              >
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>{item}</Text>
+              </TouchableOpacity>
+            );
+          }}
+        />
+
+        {isLoading || !sessionSalt ? (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator size="small" color={palette.accent} />
+            <Text style={styles.loadingText}>Loading Pinterest-quality inspiration...</Text>
+          </View>
+        ) : (
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.listContent}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefreshing}
+                onRefresh={handleRefresh}
+                tintColor={palette.accent}
+                colors={[palette.accent]}
+              />
+            }
+          >
+            <View style={styles.masonryWrap}>
+              <View style={styles.column}>
+                {columns.left.map((item) => (
+                  <InspirationCardTile
+                    key={item.id}
+                    item={item}
+                    liked={Boolean(feedbackMap[item.id]?.likedAt) || isInspirationLiked(item.id)}
+                    saved={Boolean(feedbackMap[item.id]?.savedAt) || isInspirationCardSaved(item.id)}
+                    onPress={openDetail}
+                  />
+                ))}
+              </View>
+              <View style={styles.column}>
+                {columns.right.map((item) => (
+                  <InspirationCardTile
+                    key={item.id}
+                    item={item}
+                    liked={Boolean(feedbackMap[item.id]?.likedAt) || isInspirationLiked(item.id)}
+                    saved={Boolean(feedbackMap[item.id]?.savedAt) || isInspirationCardSaved(item.id)}
+                    onPress={openDetail}
+                  />
+                ))}
+              </View>
+            </View>
+          </ScrollView>
+        )}
       </SafeAreaView>
 
-      <InspireWalkthrough visible={showWalkthrough} onDismiss={dismissWalkthrough} showSimilar />
-
-      <Modal visible={!!selectedCard} animationType="slide" transparent onRequestClose={() => setSelectedCard(null)}>
-        <View style={styles.sheetBackdrop}>
-          <TouchableOpacity style={styles.sheetDismissLayer} activeOpacity={1} onPress={() => setSelectedCard(null)} />
-          <View style={styles.sheet}>
-            {selectedCard ? (
+      <Modal visible={!!selectedItem} animationType="slide" transparent onRequestClose={() => setSelectedItem(null)}>
+        <View style={styles.modalBackdrop}>
+          <TouchableOpacity style={styles.modalDismiss} activeOpacity={1} onPress={() => setSelectedItem(null)} />
+          <View style={styles.modalCard}>
+            {selectedItem ? (
               <>
-                <Image source={{ uri: selectedCard.imageUrl }} style={styles.sheetImage} contentFit="cover" />
-                <Text style={styles.sheetTitle}>Why this works</Text>
-                <Text style={styles.sheetBody}>{whyThisWorks(selectedCard)}</Text>
-
-                <Text style={styles.sheetTitle}>Key pieces</Text>
-                <View style={styles.piecesRow}>
-                  {keyPieces(selectedCard).map((piece) => (
-                    <View key={piece} style={styles.piecePill}>
-                      <Text style={styles.pieceText}>{piece}</Text>
+                <Image source={{ uri: selectedItem.imageUrl }} style={styles.modalImage} contentFit="cover" />
+                <Text style={styles.modalTitle}>{selectedItem.vibeTags[0] || 'Outfit inspiration'}</Text>
+                <View style={styles.tagsWrap}>
+                  {selectedItem.vibeTags.map((tag) => (
+                    <View key={tag} style={styles.tagPill}>
+                      <Text style={styles.tagText}>{tag}</Text>
                     </View>
                   ))}
                 </View>
-
-                <View style={styles.sheetActions}>
+                <Text style={styles.modalMeta}>{selectedItem.occasion} • {selectedItem.season}</Text>
+                <View style={styles.modalActionsRow}>
                   <TouchableOpacity
-                    style={styles.sheetAction}
-                    onPress={() => {
-                      if (selectedCard.linkUrl) Linking.openURL(selectedCard.linkUrl);
-                    }}
-                    activeOpacity={0.8}
+                    style={styles.modalButtonSecondary}
+                    activeOpacity={0.85}
+                    onPress={() => saveItem(selectedItem)}
                   >
-                    <Text style={styles.sheetActionText}>Open source</Text>
+                    <Bookmark
+                      size={16}
+                      color={isInspirationCardSaved(selectedItem.id) || Boolean(feedbackMap[selectedItem.id]?.savedAt) ? palette.accent : palette.ink}
+                      fill={isInspirationCardSaved(selectedItem.id) || Boolean(feedbackMap[selectedItem.id]?.savedAt) ? palette.accent : 'transparent'}
+                    />
+                    <Text style={styles.modalButtonSecondaryText}>
+                      {isInspirationCardSaved(selectedItem.id) || Boolean(feedbackMap[selectedItem.id]?.savedAt) ? 'Saved' : 'Save'}
+                    </Text>
                   </TouchableOpacity>
-
+                  <Animated.View style={[styles.modalPrimaryWrap, { transform: [{ scale: likePop }] }]}>
+                    <TouchableOpacity
+                      style={styles.modalButtonPrimary}
+                      activeOpacity={0.85}
+                      onPress={() => handleLikeToggle(selectedItem)}
+                    >
+                      <Heart
+                        size={16}
+                        color={palette.white}
+                        fill={Boolean(feedbackMap[selectedItem.id]?.likedAt) || isInspirationLiked(selectedItem.id) ? palette.white : 'transparent'}
+                      />
+                      <Text style={styles.modalButtonPrimaryText}>
+                        {Boolean(feedbackMap[selectedItem.id]?.likedAt) || isInspirationLiked(selectedItem.id) ? 'Liked' : 'Like'}
+                      </Text>
+                    </TouchableOpacity>
+                  </Animated.View>
+                </View>
+                <View style={styles.modalButtons}>
                   <TouchableOpacity
-                    style={[styles.sheetAction, styles.sheetActionPrimary]}
-                    onPress={() => {
-                      toggleInspirationSaved(selectedCard);
-                      flashToast('Saved inspiration', 'success');
-                    }}
-                    activeOpacity={0.8}
+                    style={styles.modalButtonTertiary}
+                    activeOpacity={0.85}
+                    onPress={() => Linking.openURL(selectedItem.pinUrl)}
                   >
-                    <Text style={styles.sheetActionPrimaryText}>Save</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.sheetAction}
-                    onPress={() => handleFindSimilar(selectedCard)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.sheetActionText}>Find similar</Text>
+                    <ExternalLink size={16} color={palette.ink} />
+                    <Text style={styles.modalButtonSecondaryText}>Open on Pinterest</Text>
                   </TouchableOpacity>
                 </View>
               </>
@@ -430,218 +474,175 @@ export default function InspirationScreen() {
         </View>
       </Modal>
 
-      <Toast visible={toast.visible} message={toast.message} tone={toast.tone} />
+      <Toast visible={toast.visible} message={toast.message} tone="info" />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: palette.warmWhite,
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: space.screen,
-  },
-  topBar: {
+  container: { flex: 1, backgroundColor: palette.warmWhite },
+  safeArea: { flex: 1 },
+  headerRow: {
+    paddingHorizontal: PADDING,
     marginTop: space.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    marginBottom: space.sm,
   },
-  segmentWrap: {
+  headerTitle: { ...typo.screenTitle, fontSize: 28, color: palette.ink },
+  headerSubtitle: { ...typo.caption, color: palette.inkMuted, marginTop: 4 },
+  genderRow: {
     flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: PADDING,
+    marginBottom: space.sm,
+  },
+  genderChip: {
+    height: 34,
+    paddingHorizontal: 16,
+    borderRadius: radius.pill,
     backgroundColor: palette.warmWhiteDark,
-    borderRadius: radius.pill,
-    padding: 4,
-    flex: 1,
-    marginRight: space.md,
-  },
-  segmentBtn: {
-    flex: 1,
-    height: 36,
-    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  segmentBtnActive: {
-    backgroundColor: palette.white,
-    ...shadow.soft,
+  genderChipActive: { backgroundColor: palette.accent },
+  genderChipText: { ...typo.caption, color: palette.inkLight },
+  genderChipTextActive: { color: palette.white },
+  chipsRow: {
+    paddingHorizontal: PADDING,
+    paddingBottom: space.md,
+    gap: 8,
   },
-  segmentText: {
-    ...typo.bodyMedium,
-    color: palette.inkMuted,
-  },
-  segmentTextActive: {
-    color: palette.ink,
-    fontWeight: '600',
-  },
-  singleGenderLabelWrap: {
-    flex: 1,
-    marginRight: space.md,
-    height: 36,
-    justifyContent: 'center',
-  },
-  singleGenderLabel: {
-    ...typo.sectionHeader,
-    color: palette.ink,
-    fontSize: 18,
-  },
-  filterIcon: {
-    width: 36,
-    height: 36,
+  chip: {
+    height: 34,
+    paddingHorizontal: 14,
     borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
     backgroundColor: palette.white,
     borderWidth: 1,
-    borderColor: palette.border,
+    borderColor: palette.borderLight,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  calibrationBanner: {
-    marginTop: space.md,
+  chipActive: {
     backgroundColor: palette.accentLight,
-    borderRadius: radius.md,
-    paddingHorizontal: space.md,
-    paddingVertical: 10,
+    borderColor: palette.accent,
+  },
+  chipText: { ...typo.caption, color: palette.inkLight },
+  chipTextActive: { color: palette.accentDark, fontWeight: '600' },
+  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.sm },
+  loadingText: { ...typo.body, color: palette.inkMuted },
+  listContent: {
+    paddingHorizontal: PADDING,
+    paddingBottom: 140,
+    paddingTop: 2,
+  },
+  masonryWrap: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: GAP,
   },
-  calibrationTitle: {
-    ...typo.caption,
-    color: palette.ink,
-    fontWeight: '600',
-  },
-  calibrationProgress: {
-    ...typo.caption,
-    color: palette.accentDark,
-    fontWeight: '700',
-  },
-  deckArea: {
-    flex: 1,
-    marginTop: space.md,
-  },
-  loadingWrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: space.sm,
-  },
-  loadingText: {
-    ...typo.body,
-    color: palette.inkMuted,
-  },
-  bottomBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 18,
-    paddingVertical: space.md,
-  },
-  actionWrap: {
-    borderRadius: radius.pill,
-  },
-  actionBtn: {
-    width: 56,
-    height: 56,
-    borderRadius: radius.pill,
+  column: { flex: 1 },
+  card: {
+    width: '100%',
+    borderRadius: 22,
+    overflow: 'hidden',
     backgroundColor: palette.white,
-    borderWidth: 1,
-    borderColor: palette.border,
-    alignItems: 'center',
-    justifyContent: 'center',
+    marginBottom: GAP + 4,
     ...shadow.soft,
   },
-  actionBtnPrimary: {
-    width: 56,
-    height: 56,
+  cardImage: { width: '100%', height: '100%', backgroundColor: palette.warmWhiteDark },
+  cardStateRow: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    flexDirection: 'row',
+    gap: 6,
+  },
+  cardStateBadge: {
+    width: 28,
+    height: 28,
     borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.9)',
+  },
+  cardStateBadgeActive: {
     backgroundColor: palette.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...shadow.button,
   },
-  fetchingMore: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingBottom: space.sm,
-  },
-  sheetBackdrop: {
+  modalBackdrop: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(28,28,28,0.24)',
+    backgroundColor: 'rgba(20,20,20,0.28)',
   },
-  sheetDismissLayer: {
-    flex: 1,
-  },
-  sheet: {
+  modalDismiss: { flex: 1 },
+  modalCard: {
     backgroundColor: palette.warmWhite,
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
     padding: space.lg,
     gap: space.md,
-    maxHeight: '82%',
   },
-  sheetImage: {
+  modalImage: {
     width: '100%',
-    height: 200,
+    height: 320,
     borderRadius: radius.lg,
     backgroundColor: palette.warmWhiteDark,
   },
-  sheetTitle: {
+  modalTitle: {
     ...typo.sectionHeader,
+    fontSize: 20,
     color: palette.ink,
-    fontSize: 17,
+    textTransform: 'capitalize',
   },
-  sheetBody: {
-    ...typo.body,
-    color: palette.inkLight,
-  },
-  piecesRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  piecePill: {
-    paddingHorizontal: 12,
-    height: 30,
+  tagsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  tagPill: {
+    height: 28,
+    paddingHorizontal: 10,
     borderRadius: radius.pill,
-    backgroundColor: palette.warmWhiteDark,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pieceText: {
-    ...typo.caption,
-    color: palette.ink,
-  },
-  sheetActions: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: space.sm,
-  },
-  sheetAction: {
-    flex: 1,
-    height: 42,
-    borderRadius: radius.md,
+    backgroundColor: palette.white,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: palette.border,
-    backgroundColor: palette.white,
+    borderColor: palette.borderLight,
   },
-  sheetActionPrimary: {
+  tagText: { ...typo.small, color: palette.ink },
+  modalMeta: { ...typo.bodyMedium, color: palette.inkLight, textTransform: 'capitalize' },
+  modalActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  modalPrimaryWrap: {
+    flex: 1,
+  },
+  modalButtons: { gap: 10 },
+  modalButtonPrimary: {
+    height: 46,
+    borderRadius: radius.md,
     backgroundColor: palette.accent,
-    borderColor: palette.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
   },
-  sheetActionText: {
-    ...typo.caption,
-    color: palette.ink,
-    fontWeight: '600',
+  modalButtonPrimaryText: { ...typo.caption, color: palette.white, fontWeight: '600' },
+  modalButtonSecondary: {
+    flex: 1,
+    height: 46,
+    borderRadius: radius.md,
+    backgroundColor: palette.white,
+    borderWidth: 1,
+    borderColor: palette.borderLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
   },
-  sheetActionPrimaryText: {
-    ...typo.caption,
-    color: palette.white,
-    fontWeight: '600',
+  modalButtonTertiary: {
+    height: 46,
+    borderRadius: radius.md,
+    backgroundColor: palette.warmWhiteDark,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
   },
+  modalButtonSecondaryText: { ...typo.caption, color: palette.ink, fontWeight: '600' },
 });

@@ -12,7 +12,7 @@ import {
   RefreshCw,
   Camera as CameraIcon,
 } from 'lucide-react-native';
-import colors from '@/constants/colors';
+import appColors from '@/constants/Colors';
 
 let CameraView: any = null;
 let useCameraPermissions: any = null;
@@ -134,11 +134,11 @@ export default function CameraScreen() {
         <Stack.Screen options={{ headerShown: false }} />
         <SafeAreaView style={styles.webSafe}>
           <TouchableOpacity style={styles.webBack} onPress={() => router.back()}>
-            <X size={24} color={colors.text} />
+            <X size={24} color={appColors.text} />
           </TouchableOpacity>
           <View style={styles.webContent}>
             <View style={styles.webIcon}>
-              <CameraIcon size={48} color={colors.primary} />
+              <CameraIcon size={48} color={appColors.primary} />
             </View>
             <Text style={styles.webTitle}>Take a Photo</Text>
             <Text style={styles.webText}>
@@ -246,19 +246,19 @@ export default function CameraScreen() {
             <View style={styles.topControls}>
               <TouchableOpacity style={styles.iconButton} onPress={() => setFlash(!flash)}>
                 {flash ? (
-                  <Zap size={24} color={colors.warning} />
+                  <Zap size={24} color={appColors.warning} />
                 ) : (
                   <ZapOff size={24} color="white" />
                 )}
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.iconButton} onPress={cycleTimer}>
-                <Timer size={24} color={timer > 0 ? colors.warning : 'white'} />
+                <Timer size={24} color={timer > 0 ? appColors.warning : 'white'} />
                 {timer > 0 && <Text style={styles.timerBadge}>{timer}s</Text>}
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.iconButton} onPress={() => setShowGrid(!showGrid)}>
-                <Grid3x3 size={24} color={showGrid ? colors.primary : 'white'} />
+                <Grid3x3 size={24} color={showGrid ? appColors.primary : 'white'} />
               </TouchableOpacity>
             </View>
           </View>
@@ -329,7 +329,7 @@ const styles = StyleSheet.create({
     bottom: 2,
     right: 2,
     fontSize: 10,
-    color: colors.warning,
+    color: appColors.warning,
     fontWeight: 'bold' as const,
   },
   tipContainer: {
@@ -419,7 +419,7 @@ const styles = StyleSheet.create({
   },
   permissionContainer: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: appColors.background,
   },
   permissionSafe: {
     flex: 1,
@@ -430,19 +430,19 @@ const styles = StyleSheet.create({
   permissionTitle: {
     fontSize: 24,
     fontWeight: '700' as const,
-    color: colors.text,
+    color: appColors.text,
     marginBottom: 12,
     textAlign: 'center',
   },
   permissionText: {
     fontSize: 16,
-    color: colors.textSecondary,
+    color: appColors.textSecondary,
     textAlign: 'center',
     lineHeight: 24,
     marginBottom: 32,
   },
   permissionButton: {
-    backgroundColor: colors.primary,
+    backgroundColor: appColors.primary,
     paddingHorizontal: 32,
     paddingVertical: 16,
     borderRadius: 12,
@@ -450,18 +450,18 @@ const styles = StyleSheet.create({
   permissionButtonText: {
     fontSize: 16,
     fontWeight: '600' as const,
-    color: colors.text,
+    color: appColors.text,
   },
   backLink: {
     marginTop: 16,
   },
   backLinkText: {
     fontSize: 14,
-    color: colors.primary,
+    color: appColors.primary,
   },
   webContainer: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: appColors.background,
   },
   webSafe: {
     flex: 1,
@@ -470,7 +470,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: colors.card,
+    backgroundColor: appColors.card,
     alignItems: 'center',
     justifyContent: 'center',
     margin: 16,
@@ -485,7 +485,7 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 30,
-    backgroundColor: colors.primary + '20',
+    backgroundColor: appColors.primary + '20',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 24,
@@ -493,18 +493,18 @@ const styles = StyleSheet.create({
   webTitle: {
     fontSize: 24,
     fontWeight: '700' as const,
-    color: colors.text,
+    color: appColors.text,
     marginBottom: 12,
   },
   webText: {
     fontSize: 16,
-    color: colors.textSecondary,
+    color: appColors.textSecondary,
     textAlign: 'center',
     lineHeight: 24,
     marginBottom: 32,
   },
   webButton: {
-    backgroundColor: colors.primary,
+    backgroundColor: appColors.primary,
     paddingHorizontal: 32,
     paddingVertical: 16,
     borderRadius: 12,
@@ -512,13 +512,13 @@ const styles = StyleSheet.create({
   webButtonText: {
     fontSize: 16,
     fontWeight: '600' as const,
-    color: colors.text,
+    color: appColors.text,
   },
   webLink: {
     marginTop: 16,
   },
   webLinkText: {
     fontSize: 14,
-    color: colors.primary,
+    color: appColors.primary,
   },
 });

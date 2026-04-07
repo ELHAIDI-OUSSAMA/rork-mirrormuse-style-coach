@@ -40,7 +40,7 @@ async function imageToBase64(uri: string): Promise<string> {
 /**
  * Saves base64 image as:
  * - Web: data URI
- * - Native: a file in cacheDirectory (file://...)
+ * - Native: a file in documentDirectory (file://...)
  */
 async function saveBase64ToFile(
   base64Data: string,
@@ -57,10 +57,10 @@ async function saveBase64ToFile(
     safeMime.includes("jpg") || safeMime.includes("jpeg") ? "jpg" :
     "png";
 
-  const fileUri = `${FileSystem.cacheDirectory}stickers/sticker-${Date.now()}.${ext}`;
+  const fileUri = `${FileSystem.documentDirectory}stickers/sticker-${Date.now()}.${ext}`;
 
   // Ensure directory exists
-  const dirUri = `${FileSystem.cacheDirectory}stickers`;
+  const dirUri = `${FileSystem.documentDirectory}stickers`;
   const dirInfo = await FileSystem.getInfoAsync(dirUri);
   if (!dirInfo.exists) {
     await FileSystem.makeDirectoryAsync(dirUri, { intermediates: true });
@@ -79,7 +79,7 @@ async function saveBase64ToFile(
 function safeJsonParse(rawText: string): any {
   try {
     return JSON.parse(rawText);
-  } catch (e) {
+  } catch {
     // Add a short preview to help debugging
     const preview = rawText?.slice(0, 200)?.replace(/\s+/g, " ");
     throw new Error(
@@ -120,16 +120,51 @@ function extractImagePayload(result: any): { base64Data: string; mimeType: strin
   throw new Error("No image base64Data found in API response.");
 }
 
-export async function removeBackground(imageUri: string, isGarmentOnly: boolean = true): Promise<BackgroundRemovalResult> {
+function buildBgRemovalPrompt(
+  isGarmentOnly: boolean,
+  options?: { itemDescription?: string; strictMode?: boolean; region?: string }
+): string {
+  if (!isGarmentOnly) {
+    return "Isolate the clothing item in this image and place it on a solid #FF00FF background. Keep fabric details and realistic edges.";
+  }
+
+  const item = options?.itemDescription || "garment";
+  const region = options?.region || '';
+  const strict = options?.strictMode
+    ? " STRICT: If any person/body remains, remove it entirely. Keep ONLY the garment silhouette."
+    : "";
+
+  if (region === 'upper_outer' || item.toLowerCase().includes('jacket') || item.toLowerCase().includes('coat') || item.toLowerCase().includes('blazer')) {
+    return `Extract ONLY the jacket/coat/outerwear from this image. Remove the person's body completely: no face, no hands, no arms, no torso skin, no inner shirt, no pants. Remove ALL background. Output ONLY the outerwear garment as a clean silhouette on a solid #FF00FF background.${strict}`;
+  }
+
+  if (region === 'upper_inner' || item.toLowerCase().includes('t-shirt') || item.toLowerCase().includes('shirt') || item.toLowerCase().includes('sweater')) {
+    return `Extract ONLY the shirt/t-shirt/inner top from this image. Remove the person's body completely: no face, no hands, no arms, no skin, no jacket/outerwear, no pants. Remove ALL background. Output ONLY the inner top garment as a clean silhouette on a solid #FF00FF background.${strict}`;
+  }
+
+  if (region === 'lower' || item.toLowerCase().includes('pants') || item.toLowerCase().includes('jeans') || item.toLowerCase().includes('trousers')) {
+    return `Extract ONLY the pants/trousers from this image. Remove the person's body completely: no torso, no shoes, no sneakers, no belt, no hands, no legs/skin. Remove ALL background and floor. Do NOT include any footwear — stop at the ankle hem. Output ONLY the pants as a clean silhouette on a solid #FF00FF background.${strict}`;
+  }
+
+  if (region === 'feet' || item.toLowerCase().includes('shoe') || item.toLowerCase().includes('sneaker') || item.toLowerCase().includes('boot')) {
+    return `Extract ONLY the shoes/sneakers/boots from this image. Remove the person's legs, floor, ground, and ALL background. Output ONLY the footwear as a clean silhouette on a solid #FF00FF background.${strict}`;
+  }
+
+  return `Extract ONLY the ${item} from the image. Remove the person completely (no face, no hands, no legs, no body). Remove ALL background. Output a clean transparent PNG sticker of the ${item} only.${strict} Use a solid #FF00FF background in the generated image to support transparency post-processing.`;
+}
+
+export async function removeBackground(
+  imageUri: string,
+  isGarmentOnly: boolean = true,
+  options?: { itemDescription?: string; strictMode?: boolean; region?: string }
+): Promise<BackgroundRemovalResult> {
   try {
-    console.log("[BackgroundRemoval] Starting for:", imageUri);
+    console.log("[BackgroundRemoval] Starting for:", imageUri, "region:", options?.region);
 
     const base64Image = await imageToBase64(imageUri);
     console.log("[BackgroundRemoval] Converted to base64");
 
-    const prompt = isGarmentOnly
-      ? "Extract ONLY the clothing/garment item and place it on a SOLID BRIGHT MAGENTA/PINK (#FF00FF) background. CRITICAL: Remove ALL human body parts (no hands, arms, legs, face, torso, skin). Output only the fabric/garment itself on a perfectly uniform magenta (#FF00FF) background. The magenta must be pure #FF00FF everywhere except the garment."
-      : "Isolate the clothing item in this image and place it on a SOLID BRIGHT MAGENTA/PINK (#FF00FF) background. Keep the item natural and preserve all details. The background must be pure magenta (#FF00FF) everywhere.";
+    const prompt = buildBgRemovalPrompt(isGarmentOnly, options);
 
     const requestBody = {
       prompt,
@@ -204,11 +239,12 @@ export async function processClothingImage(imageUri: string): Promise<{
 export async function removeBackgroundWithRetry(
   imageUri: string,
   onProgress?: (message: string) => void,
-  isGarmentOnly: boolean = true
+  isGarmentOnly: boolean = true,
+  options?: { itemDescription?: string; strictMode?: boolean; region?: string }
 ): Promise<BackgroundRemovalResult> {
   onProgress?.("Removing background (pass 1)...");
   
-  const firstPassResult = await removeBackground(imageUri, isGarmentOnly);
+  const firstPassResult = await removeBackground(imageUri, isGarmentOnly, options);
 
   if (firstPassResult.success && firstPassResult.stickerUri) {
     console.log("[BackgroundRemoval] First pass successful");
@@ -220,7 +256,10 @@ export async function removeBackgroundWithRetry(
 
   await new Promise((resolve) => setTimeout(resolve, 500));
 
-  const secondPassResult = await removeBackground(imageUri, isGarmentOnly);
+  const secondPassResult = await removeBackground(imageUri, isGarmentOnly, {
+    ...(options || {}),
+    strictMode: true,
+  });
 
   if (secondPassResult.success && secondPassResult.stickerUri) {
     console.log("[BackgroundRemoval] Second pass successful");

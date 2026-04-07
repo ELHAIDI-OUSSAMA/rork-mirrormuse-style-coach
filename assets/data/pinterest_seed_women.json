@@ -1,0 +1,112 @@
+[
+  {
+    "id": "women_001",
+    "gender": "women",
+    "imageUrl": "https://images.pexels.com/photos/1036623/pexels-photo-1036623.jpeg?auto=compress&cs=tinysrgb&w=900&dpr=1",
+    "pinUrl": "https://www.pinterest.com/search/pins/?q=minimal%20women%20outfit",
+    "vibeTags": ["minimal", "clean girl"],
+    "season": "all",
+    "occasion": "casual",
+    "createdAt": "2025-01-14T10:00:00.000Z",
+    "source": "pinterest_seed"
+  },
+  {
+    "id": "women_002",
+    "gender": "women",
+    "imageUrl": "https://images.pexels.com/photos/2613260/pexels-photo-2613260.jpeg?auto=compress&cs=tinysrgb&w=900&dpr=1",
+    "pinUrl": "https://www.pinterest.com/search/pins/?q=work%20women%20outfit",
+    "vibeTags": ["smart casual", "work"],
+    "season": "all",
+    "occasion": "work",
+    "createdAt": "2025-01-16T10:00:00.000Z",
+    "source": "pinterest_seed"
+  },
+  {
+    "id": "women_003",
+    "gender": "women",
+    "imageUrl": "https://images.pexels.com/photos/2887718/pexels-photo-2887718.jpeg?auto=compress&cs=tinysrgb&w=900&dpr=1",
+    "pinUrl": "https://www.pinterest.com/search/pins/?q=streetwear%20women%20outfit",
+    "vibeTags": ["streetwear", "casual"],
+    "season": "spring",
+    "occasion": "streetwear",
+    "createdAt": "2025-01-18T10:00:00.000Z",
+    "source": "pinterest_seed"
+  },
+  {
+    "id": "women_004",
+    "gender": "women",
+    "imageUrl": "https://images.pexels.com/photos/1689731/pexels-photo-1689731.jpeg?auto=compress&cs=tinysrgb&w=900&dpr=1",
+    "pinUrl": "https://www.pinterest.com/search/pins/?q=old%20money%20women%20outfit",
+    "vibeTags": ["old money", "polished"],
+    "season": "fall",
+    "occasion": "formal",
+    "createdAt": "2025-01-20T10:00:00.000Z",
+    "source": "pinterest_seed"
+  },
+  {
+    "id": "women_005",
+    "gender": "women",
+    "imageUrl": "https://images.pexels.com/photos/14984388/pexels-photo-14984388.jpeg?auto=compress&cs=tinysrgb&w=900&dpr=1",
+    "pinUrl": "https://www.pinterest.com/search/pins/?q=athletic%20women%20outfit",
+    "vibeTags": ["athletic", "casual"],
+    "season": "summer",
+    "occasion": "athletic",
+    "createdAt": "2025-01-22T10:00:00.000Z",
+    "source": "pinterest_seed"
+  },
+  {
+    "id": "women_006",
+    "gender": "women",
+    "imageUrl": "https://images.pexels.com/photos/2681751/pexels-photo-2681751.jpeg?auto=compress&cs=tinysrgb&w=900&dpr=1",
+    "pinUrl": "https://www.pinterest.com/search/pins/?q=formal%20women%20outfit",
+    "vibeTags": ["formal", "glam"],
+    "season": "winter",
+    "occasion": "formal",
+    "createdAt": "2025-01-24T10:00:00.000Z",
+    "source": "pinterest_seed"
+  },
+  {
+    "id": "women_007",
+    "gender": "women",
+    "imageUrl": "https://images.pexels.com/photos/2459168/pexels-photo-2459168.jpeg?auto=compress&cs=tinysrgb&w=900&dpr=1",
+    "pinUrl": "https://www.pinterest.com/search/pins/?q=summer%20women%20outfit%20ideas",
+    "vibeTags": ["minimal", "summer"],
+    "season": "summer",
+    "occasion": "travel",
+    "createdAt": "2025-01-26T10:00:00.000Z",
+    "source": "pinterest_seed"
+  },
+  {
+    "id": "women_008",
+    "gender": "women",
+    "imageUrl": "https://images.pexels.com/photos/1858488/pexels-photo-1858488.jpeg?auto=compress&cs=tinysrgb&w=900&dpr=1",
+    "pinUrl": "https://www.pinterest.com/search/pins/?q=winter%20women%20outfit%20ideas",
+    "vibeTags": ["classic", "winter"],
+    "season": "winter",
+    "occasion": "work",
+    "createdAt": "2025-01-28T10:00:00.000Z",
+    "source": "pinterest_seed"
+  },
+  {
+    "id": "women_009",
+    "gender": "women",
+    "imageUrl": "https://images.pexels.com/photos/1308881/pexels-photo-1308881.jpeg?auto=compress&cs=tinysrgb&w=900&dpr=1",
+    "pinUrl": "https://www.pinterest.com/search/pins/?q=date%20night%20women%20outfit",
+    "vibeTags": ["clean girl", "date"],
+    "season": "all",
+    "occasion": "date",
+    "createdAt": "2025-01-30T10:00:00.000Z",
+    "source": "pinterest_seed"
+  },
+  {
+    "id": "women_010",
+    "gender": "women",
+    "imageUrl": "https://images.pexels.com/photos/18968353/pexels-photo-18968353.jpeg?auto=compress&cs=tinysrgb&w=900&dpr=1",
+    "pinUrl": "https://www.pinterest.com/search/pins/?q=party%20women%20outfit",
+    "vibeTags": ["party", "streetwear"],
+    "season": "fall",
+    "occasion": "party",
+    "createdAt": "2025-02-01T10:00:00.000Z",
+    "source": "pinterest_seed"
+  }
+]

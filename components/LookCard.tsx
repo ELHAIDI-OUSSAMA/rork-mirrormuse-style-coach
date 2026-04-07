@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Image } from 'expo-image';
 import { Calendar, Sparkles } from 'lucide-react-native';
-import colors from '@/constants/colors';
+import appColors from '@/constants/Colors';
 import { LookAnalysis } from '@/types';
 import { Card } from './Card';
 import { Chip } from './Chip';
@@ -32,11 +32,11 @@ export function LookCard({ look, onPress }: LookCardProps) {
         <View style={styles.content}>
           <View style={styles.topRow}>
             <View style={styles.dateContainer}>
-              <Calendar size={14} color={colors.textLight} />
+              <Calendar size={14} color={appColors.textLight} />
               <Text style={styles.date}>{formatDate(look.createdAt)}</Text>
             </View>
             <View style={styles.scoreContainer}>
-              <Sparkles size={14} color={colors.primary} />
+              <Sparkles size={14} color={appColors.primary} />
               <Text style={styles.score}>{look.results.fitScore}/5</Text>
             </View>
           </View>
@@ -88,7 +88,7 @@ const styles = StyleSheet.create({
   },
   date: {
     fontSize: 12,
-    color: colors.textLight,
+    color: appColors.textLight,
     marginLeft: 4,
   },
   scoreContainer: {
@@ -98,13 +98,13 @@ const styles = StyleSheet.create({
   score: {
     fontSize: 12,
     fontWeight: '600' as const,
-    color: colors.primary,
+    color: appColors.primary,
     marginLeft: 4,
   },
   summary: {
     fontSize: 14,
     lineHeight: 20,
-    color: colors.textSecondary,
+    color: appColors.textSecondary,
     marginBottom: 12,
   },
   tags: {

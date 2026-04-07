@@ -14,6 +14,7 @@ import {
   RecreatedOutfit,
   PlanningOccasion,
 } from '@/types';
+import { TopPreferences } from '@/lib/preferenceModel';
 
 const summaries = [
   "You're serving effortless chic today! The proportions are balanced and the colors work beautifully together.",
@@ -406,6 +407,7 @@ export function generateMockAnalysis(
   options?: {
     seed?: string;
     detectedClothingItems?: DetectedClothingItem[];
+    topPreferences?: TopPreferences;
   }
 ): AnalysisResult {
   const seed = options?.seed || `${vibe}-${occasion}-${budget}`;
@@ -436,6 +438,11 @@ export function generateMockAnalysis(
   const fitScore = calculateDeterministicFitScore(detectedClothingItems, random);
 
   let closetRecommendations: string[] = [];
+  const topPreferences = options?.topPreferences;
+  const preferredVibe = topPreferences?.topVibes[0];
+  const preferredOccasion = topPreferences?.topOccasion;
+  const preferredSeason = topPreferences?.topSeason;
+
   if (closetItems && closetItems.length > 0) {
     closetRecommendations = [
       `Try pairing with your ${closetItems[0]?.color} ${closetItems[0]?.category} from your closet`,
@@ -450,11 +457,30 @@ export function generateMockAnalysis(
     ];
   }
 
+  if (preferredVibe) {
+    closetRecommendations = [
+      `Lean into your ${preferredVibe} taste with cleaner lines and a more intentional silhouette`,
+      ...closetRecommendations,
+    ].slice(0, 3);
+  }
+
+  const personalizedQuickFixes = [...(quickFixesByVibe[vibe] || quickFixesByVibe['Minimal'])];
+  if (preferredVibe === 'minimal') {
+    personalizedQuickFixes.unshift('Keep the palette tight and silhouettes crisp to reinforce your minimal preference');
+  } else if (preferredVibe) {
+    personalizedQuickFixes.unshift(`Push this look slightly more ${preferredVibe} to align with the outfits you consistently like`);
+  }
+
+  const personalizationTail = [
+    preferredOccasion ? `This also maps well to your usual ${preferredOccasion} looks.` : null,
+    preferredSeason ? `Aim for textures and layering that feel right for ${preferredSeason}.` : null,
+  ].filter(Boolean).join(' ');
+
   return {
-    summary: summaries[Math.floor(random() * summaries.length)],
+    summary: `${summaries[Math.floor(random() * summaries.length)]}${personalizationTail ? ` ${personalizationTail}` : ''}`,
     fitScore,
     vibeTags: vibeTags[occasion] || ['Stylish', 'Balanced', 'Intentional'],
-    quickFixes: quickFixesByVibe[vibe] || quickFixesByVibe['Minimal'],
+    quickFixes: personalizedQuickFixes.slice(0, 4),
     upgrades: upgradesByBudget[budget] || upgradesByBudget['$$'],
     alternativeLooks: alternativeLooks.slice(0, 2 + Math.floor(random() * 2)),
     avoid: avoidItems.slice(0, 2),
@@ -862,7 +888,7 @@ export function recreateInspirationOutfit(
 }
 
 export function getMockWeather(date?: string): WeatherSnapshot {
-  const conditions: Array<{ condition: WeatherSnapshot['condition']; temp: number; rain: number }> = [
+  const conditions: { condition: WeatherSnapshot['condition']; temp: number; rain: number }[] = [
     { condition: 'sunny', temp: 22, rain: 5 },
     { condition: 'cloudy', temp: 18, rain: 30 },
     { condition: 'rainy', temp: 14, rain: 80 },

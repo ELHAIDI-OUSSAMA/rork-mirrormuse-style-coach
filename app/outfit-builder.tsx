@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -21,9 +21,11 @@ import {
   Sparkles,
   ArrowLeft,
   Plus,
+  UserRound,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { useRouter } from 'expo-router';
+import { buildPersonalizationContext, getUserStyleProfile } from '@/lib/preferenceModel';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useApp } from '@/contexts/AppContext';
 import { ClosetItem, StickerPlacement, OutfitAIReview } from '@/types';
 import { generateObject } from '@rork-ai/toolkit-sdk';
@@ -313,7 +315,15 @@ function DraggableSticker({ sticker, isSelected, onSelect, onUpdate, canvasScale
 
 export default function OutfitBuilderScreen() {
   const router = useRouter();
-  const { closetItems, addComposedOutfit, preferences, themeColors } = useApp();
+  const params = useLocalSearchParams<{ closetItemId?: string }>();
+  const {
+    closetItems,
+    addComposedOutfit,
+    preferences,
+    themeColors,
+    avatarProfile,
+    renderDigitalTryOn,
+  } = useApp();
 
   const [stickers, setStickers] = useState<CanvasSticker[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -323,6 +333,7 @@ export default function OutfitBuilderScreen() {
   const [aiReview, setAiReview] = useState<OutfitAIReview | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [showReview, setShowReview] = useState(false);
+  const preloadedItemRef = useRef<string | null>(null);
   const canvasRef = useRef<View>(null);
   const [canvasLayout, setCanvasLayout] = useState({ y: 0, h: 0 });
 
@@ -417,6 +428,15 @@ export default function OutfitBuilderScreen() {
     () => closetItems.filter(i => i.stickerPngUri && i.processingStatus !== 'queued' && i.processingStatus !== 'processing'),
     [closetItems]
   );
+
+  useEffect(() => {
+    const initialItemId = params.closetItemId ? String(params.closetItemId) : '';
+    if (!initialItemId || preloadedItemRef.current === initialItemId) return;
+    const item = stickerItems.find((candidate) => candidate.id === initialItemId);
+    if (!item) return;
+    addSticker(item);
+    preloadedItemRef.current = initialItemId;
+  }, [addSticker, params.closetItemId, stickerItems]);
 
   const sorted = useMemo(
     () => [...stickers].sort((a, b) => a.zIndex - b.zIndex),
@@ -530,6 +550,8 @@ export default function OutfitBuilderScreen() {
         color: s.item.color,
         tags: s.item.styleTags,
       }));
+      const styleProfile = await getUserStyleProfile();
+      const personalizationContext = buildPersonalizationContext(styleProfile);
 
       const prompt = `Analyze this outfit composition and provide detailed fashion feedback.
 
@@ -537,6 +559,9 @@ User preferences:
 - Gender: ${preferences.gender || 'Not specified'}
 - Vibes: ${preferences.vibes.join(', ') || 'Not specified'}
 - Occasions: ${preferences.occasions.join(', ') || 'Not specified'}
+
+PERSONALIZATION CONTEXT:
+${personalizationContext}
 
 Outfit items:
 ${items.map((it, i) => `${i + 1}. ${it.category} - ${it.color}${it.tags.length > 0 ? ` (${it.tags.join(', ')})` : ''}`).join('\n')}
@@ -549,7 +574,9 @@ Provide:
 5. Missing pieces
 6. Swap suggestions
 7. Style direction
-8. Best and worst occasions`;
+8. Best and worst occasions
+
+Prioritize suggestions that align with the personalization context when it is strong.`;
 
       const result = await generateObject({
         messages: [{ role: 'user', content: prompt }],
@@ -564,6 +591,23 @@ Provide:
       setReviewing(false);
     }
   }, [stickers, preferences]);
+
+  const handleTryOnTwin = useCallback(async () => {
+    if (stickers.length < 2) return;
+    if (!avatarProfile || avatarProfile.status !== 'ready') {
+      router.push('/ai-twin/setup' as any);
+      return;
+    }
+    try {
+      await renderDigitalTryOn({
+        source: 'outfit_builder',
+        closetItemIds: stickers.map((sticker) => sticker.closetItemId),
+      });
+      router.push('/ai-twin/status' as any);
+    } catch {
+      Alert.alert('Try-on failed', 'Could not start your try-on preview. Please retry.');
+    }
+  }, [avatarProfile, renderDigitalTryOn, router, stickers]);
 
   /* ── Render ── */
 
@@ -581,6 +625,13 @@ Provide:
           <Text style={styles.hdrTitle}>Outfit Builder</Text>
 
           <View style={styles.hdrActions}>
+            <TouchableOpacity
+              style={[styles.hdrBtn, { backgroundColor: palette.info }]}
+              onPress={handleTryOnTwin}
+              disabled={stickers.length < 2}
+            >
+              <UserRound size={17} color="#FFF" />
+            </TouchableOpacity>
             <TouchableOpacity
               style={[styles.hdrBtn, { backgroundColor: palette.secondary }]}
               onPress={handleReview}

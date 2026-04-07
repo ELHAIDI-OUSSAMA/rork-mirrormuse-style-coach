@@ -1,0 +1,16 @@
+[
+  {
+    "pinUrl": "https://www.pinterest.com/pin/replace-with-real-pin-id-001/",
+    "imageUrl": "https://i.pinimg.com/736x/replace-with-real-image-001.jpg",
+    "vibeTags": ["minimal", "smart casual"],
+    "season": "all",
+    "occasion": "casual"
+  },
+  {
+    "pinUrl": "https://www.pinterest.com/pin/replace-with-real-pin-id-002/",
+    "imageUrl": "https://i.pinimg.com/736x/replace-with-real-image-002.jpg",
+    "vibeTags": ["old money"],
+    "season": "fall",
+    "occasion": "work"
+  }
+]

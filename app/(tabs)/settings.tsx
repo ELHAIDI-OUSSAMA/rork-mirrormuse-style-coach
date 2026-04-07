@@ -18,6 +18,7 @@ import {
   CloudSun,
   Calendar,
   Heart,
+  HandHeart,
 } from 'lucide-react-native';
 import { useApp } from '@/contexts/AppContext';
 import { Card } from '@/components/Card';
@@ -39,12 +40,16 @@ export default function SettingsScreen() {
     savedLooks,
     closetItems,
     plannedOutfits,
+    cleanupCandidates,
     isGuest,
     themeColors,
     notificationSettings,
     updateNotificationSetting,
     creatorSettings,
     toggleCreatorMode,
+    avatarProfile,
+    virtualTryOnRenders,
+    deleteDigitalTwin,
   } = useApp();
   const [showPrefs, setShowPrefs] = useState(false);
   const [showGender, setShowGender] = useState(false);
@@ -159,6 +164,53 @@ export default function SettingsScreen() {
             <TouchableOpacity style={s.proBtn}>
               <Text style={[typo.button, { color: '#FFF', fontSize: 14 }]}>Coming Soon</Text>
             </TouchableOpacity>
+          </Card>
+
+          <Text style={s.sectionLabel}>Digital Twin</Text>
+          <Card padding="none" style={s.section}>
+            <SettingRow
+              icon={<User size={18} color={palette.inkMuted} strokeWidth={1.8} />}
+              title={
+                avatarProfile?.status === 'creating'
+                  ? 'Building your Twin'
+                  : avatarProfile?.status === 'ready'
+                    ? 'Twin ready'
+                    : 'Set up Digital Twin'
+              }
+              subtitle={
+                avatarProfile?.status === 'creating'
+                  ? 'We are generating your avatar in the background'
+                  : avatarProfile?.status === 'ready'
+                  ? `${virtualTryOnRenders.length} try-on render${virtualTryOnRenders.length === 1 ? '' : 's'}`
+                  : 'Upload face and body photos for virtual try-on'
+              }
+              onPress={() =>
+                router.push(
+                  (avatarProfile?.status === 'creating' ? '/ai-twin/status' : '/ai-twin') as any
+                )
+              }
+            />
+            {avatarProfile ? (
+              <>
+                <View style={s.divider} />
+                <SettingRow
+                  icon={<Trash2 size={18} color={palette.error} strokeWidth={1.8} />}
+                  title="Delete Digital Twin"
+                  subtitle="Remove avatar photos and renders"
+                  danger
+                  onPress={() => {
+                    Alert.alert(
+                      'Delete Digital Twin',
+                      'This will remove your avatar photos and try-on renders.',
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Delete', style: 'destructive', onPress: () => deleteDigitalTwin() },
+                      ]
+                    );
+                  }}
+                />
+              </>
+            ) : null}
           </Card>
 
           {/* Account */}
@@ -323,6 +375,17 @@ export default function SettingsScreen() {
               title="Planned Outfits"
               subtitle={`${plannedOutfits.length} ${plannedOutfits.length === 1 ? 'outfit' : 'outfits'}`}
               showArrow={false}
+            />
+            <View style={s.divider} />
+            <SettingRow
+              icon={<HandHeart size={18} color={palette.accent} strokeWidth={1.8} />}
+              title="Closet Cleanup"
+              subtitle={
+                cleanupCandidates.length > 0
+                  ? `${cleanupCandidates.length} item${cleanupCandidates.length === 1 ? '' : 's'} ready to review`
+                  : 'Review unused items for keep, sell, or donate'
+              }
+              onPress={() => router.push('/closet-cleanup' as any)}
             />
             {closetItems.length > 0 && (
               <>

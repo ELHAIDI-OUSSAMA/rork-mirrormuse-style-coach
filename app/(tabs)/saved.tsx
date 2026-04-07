@@ -29,7 +29,7 @@ import {
 } from '@/constants/theme';
 import { AppHeader } from '@/components/AppHeader';
 import { useApp } from '@/contexts/AppContext';
-import { LookAnalysis, ComposedOutfit, SavedInspiration } from '@/types';
+import { LookAnalysis, ComposedOutfit, SavedInspiration, ImportedOutfit } from '@/types';
 
 const { width } = Dimensions.get('window');
 const PADDING = space.screen;
@@ -54,6 +54,7 @@ export default function SavedScreen() {
     composedOutfits,
     removeComposedOutfit,
     getClosetItemById,
+    importedOutfits,
   } = useApp();
   const [activeTab, setActiveTab] = useState<'looks' | 'outfits' | 'inspo'>('looks');
   const filteredLooks = useMemo(() => savedLooks, [savedLooks]);
@@ -61,7 +62,7 @@ export default function SavedScreen() {
   const getTabCount = (key: string) => {
     if (key === 'looks') return savedLooks.length;
     if (key === 'outfits') return composedOutfits.length;
-    if (key === 'inspo') return savedInspirationItems.length;
+    if (key === 'inspo') return savedInspirationItems.length + importedOutfits.length;
     return 0;
   };
 
@@ -185,6 +186,24 @@ export default function SavedScreen() {
     </View>
   );
 
+  const renderImportedInspoCard = ({ item }: { item: ImportedOutfit }) => (
+    <View style={s.gridCell}>
+      <TouchableOpacity
+        style={s.card}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          router.push({ pathname: '/imported-outfit', params: { importedOutfitId: item.id } } as any);
+        }}
+        activeOpacity={0.85}
+      >
+        <Image source={{ uri: item.imageUri }} style={s.cardImage} contentFit="cover" />
+        <View style={s.inspoSourceBadge}>
+          <Text style={s.inspoSourceText}>Imported · {item.sourcePlatform}</Text>
+        </View>
+      </TouchableOpacity>
+    </View>
+  );
+
   return (
     <View style={s.container}>
       <SafeAreaView style={s.safeArea} edges={['top']}>
@@ -251,23 +270,42 @@ export default function SavedScreen() {
             }
           />
         ) : (
-          <FlatList
-            data={savedInspirationItems}
-            renderItem={renderInspoCard}
-            keyExtractor={(item) => item.id}
-            numColumns={NUM_COLUMNS}
-            key="inspo-grid"
-            showsVerticalScrollIndicator={false}
-            columnWrapperStyle={s.columnWrapper}
-            contentContainerStyle={[s.gridContent, savedInspirationItems.length === 0 && s.gridContentEmpty]}
-            ListEmptyComponent={
-              <View style={s.emptyState}>
-                <View style={s.emptyIcon}><Heart size={40} color={palette.inkMuted} /></View>
-                <Text style={s.emptyTitle}>No saved inspirations</Text>
-                <Text style={s.emptySubtitle}>Browse the Inspiration feed and tap the bookmark to save looks you love</Text>
-              </View>
-            }
-          />
+          <View style={{ flex: 1 }}>
+            {importedOutfits.length > 0 ? (
+              <FlatList
+                data={importedOutfits}
+                renderItem={renderImportedInspoCard}
+                keyExtractor={(item) => item.id}
+                numColumns={NUM_COLUMNS}
+                key="imported-inspo-grid"
+                showsVerticalScrollIndicator={false}
+                columnWrapperStyle={s.columnWrapper}
+                contentContainerStyle={s.gridContent}
+                ListHeaderComponent={<Text style={s.subsectionLabel}>Imported outfits</Text>}
+                scrollEnabled={false}
+              />
+            ) : null}
+            <FlatList
+              data={savedInspirationItems}
+              renderItem={renderInspoCard}
+              keyExtractor={(item) => item.id}
+              numColumns={NUM_COLUMNS}
+              key="inspo-grid"
+              showsVerticalScrollIndicator={false}
+              columnWrapperStyle={s.columnWrapper}
+              contentContainerStyle={[s.gridContent, savedInspirationItems.length === 0 && importedOutfits.length === 0 && s.gridContentEmpty]}
+              ListHeaderComponent={savedInspirationItems.length > 0 ? <Text style={s.subsectionLabel}>Saved inspirations</Text> : null}
+              ListEmptyComponent={
+                importedOutfits.length === 0 ? (
+                  <View style={s.emptyState}>
+                    <View style={s.emptyIcon}><Heart size={40} color={palette.inkMuted} /></View>
+                    <Text style={s.emptyTitle}>No saved inspirations</Text>
+                    <Text style={s.emptySubtitle}>Import from social links or save looks from the Inspiration feed</Text>
+                  </View>
+                ) : null
+              }
+            />
+          </View>
         )}
       </SafeAreaView>
     </View>
@@ -337,4 +375,11 @@ const s = StyleSheet.create({
   },
   emptyTitle: { ...typo.sectionHeader, color: palette.ink, marginBottom: space.sm, textAlign: 'center' },
   emptySubtitle: { ...typo.body, fontSize: 14, color: palette.inkMuted, textAlign: 'center', lineHeight: 22 },
+  subsectionLabel: {
+    ...typo.caption,
+    color: palette.inkMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: space.sm,
+  },
 });

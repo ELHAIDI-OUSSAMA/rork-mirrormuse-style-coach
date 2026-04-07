@@ -3,7 +3,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AlertCircle } from 'lucide-react-native';
-import colors from '@/constants/colors';
+import appColors from '@/constants/Colors';
 import { Button } from '@/components/Button';
 
 export default function NotFoundScreen() {
@@ -19,11 +19,11 @@ export default function NotFoundScreen() {
         />
         <View style={styles.content}>
           <View style={styles.iconContainer}>
-            <AlertCircle size={48} color={colors.textLight} />
+            <AlertCircle size={48} color={appColors.textLight} />
           </View>
           <Text style={styles.title}>Page Not Found</Text>
           <Text style={styles.text}>
-            The page you're looking for doesn't exist or has been moved.
+            {"The page you're looking for doesn't exist or has been moved."}
           </Text>
           <Button
             title="Go Home"
@@ -51,7 +51,7 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: colors.backgroundSecondary,
+    backgroundColor: appColors.backgroundSecondary,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 24,
@@ -59,12 +59,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: '700' as const,
-    color: colors.text,
+    color: appColors.text,
     marginBottom: 12,
   },
   text: {
     fontSize: 16,
-    color: colors.textSecondary,
+    color: appColors.textSecondary,
     textAlign: 'center',
     lineHeight: 24,
     marginBottom: 32,

@@ -50,6 +50,88 @@ function RootLayoutNav() {
           headerShown: false,
         }}
       />
+      <Stack.Screen
+        name="add-by-search"
+        options={{
+          headerShown: false,
+          presentation: 'modal',
+        }}
+      />
+      <Stack.Screen
+        name="add-by-scan"
+        options={{
+          headerShown: false,
+          presentation: 'modal',
+        }}
+      />
+      <Stack.Screen
+        name="digital-twin"
+        options={{
+          headerShown: false,
+          presentation: 'modal',
+        }}
+      />
+      <Stack.Screen
+        name="ai-twin"
+        options={{
+          headerShown: false,
+          presentation: 'modal',
+        }}
+      />
+      <Stack.Screen
+        name="closet-cleanup"
+        options={{
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="marketplace/create-listing"
+        options={{
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="marketplace/listing/[id]"
+        options={{
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="donate-item"
+        options={{
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="closet-value"
+        options={{
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="style-personality"
+        options={{
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="sell-opportunities"
+        options={{
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="imported-outfit"
+        options={{
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="import-social"
+        options={{
+          headerShown: false,
+        }}
+      />
       <Stack.Screen name="+not-found" />
     </Stack>
   );

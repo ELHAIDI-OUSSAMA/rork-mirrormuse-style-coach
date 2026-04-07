@@ -4,7 +4,7 @@ import { useRouter, Stack } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ArrowLeft, Mail, Lock, User } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import colors from '@/constants/colors';
+import appColors from '@/constants/Colors';
 import { useApp } from '@/contexts/AppContext';
 import { Button } from '@/components/Button';
 
@@ -47,7 +47,7 @@ export default function AuthScreen() {
             style={styles.keyboardView}
           >
             <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-              <ArrowLeft size={24} color={colors.text} />
+              <ArrowLeft size={24} color={appColors.text} />
             </TouchableOpacity>
 
             <View style={styles.header}>
@@ -61,11 +61,11 @@ export default function AuthScreen() {
 
             <View style={styles.form}>
               <View style={styles.inputContainer}>
-                <Mail size={20} color={colors.textLight} />
+                <Mail size={20} color={appColors.textLight} />
                 <TextInput
                   style={styles.input}
                   placeholder="Email"
-                  placeholderTextColor={colors.textLight}
+                  placeholderTextColor={appColors.textLight}
                   value={email}
                   onChangeText={setEmail}
                   keyboardType="email-address"
@@ -74,11 +74,11 @@ export default function AuthScreen() {
               </View>
 
               <View style={styles.inputContainer}>
-                <Lock size={20} color={colors.textLight} />
+                <Lock size={20} color={appColors.textLight} />
                 <TextInput
                   style={styles.input}
                   placeholder="Password"
-                  placeholderTextColor={colors.textLight}
+                  placeholderTextColor={appColors.textLight}
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry
@@ -104,7 +104,7 @@ export default function AuthScreen() {
                 onPress={handleGuest}
                 variant="outline"
                 size="large"
-                icon={<User size={18} color={colors.primary} />}
+                icon={<User size={18} color={appColors.primary} />}
               />
 
               <TouchableOpacity
@@ -141,7 +141,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: colors.card,
+    backgroundColor: appColors.card,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 8,
@@ -153,12 +153,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 32,
     fontWeight: '700' as const,
-    color: colors.text,
+    color: appColors.text,
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
-    color: colors.textSecondary,
+    color: appColors.textSecondary,
   },
   form: {
     flex: 1,
@@ -166,19 +166,19 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.card,
+    backgroundColor: appColors.card,
     borderRadius: 12,
     paddingHorizontal: 16,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: appColors.border,
   },
   input: {
     flex: 1,
     paddingVertical: 16,
     marginLeft: 12,
     fontSize: 16,
-    color: colors.text,
+    color: appColors.text,
   },
   authButton: {
     marginTop: 8,
@@ -192,11 +192,11 @@ const styles = StyleSheet.create({
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: colors.border,
+    backgroundColor: appColors.border,
   },
   dividerText: {
     marginHorizontal: 16,
-    color: colors.textLight,
+    color: appColors.textLight,
     fontSize: 14,
   },
   switchMode: {
@@ -205,10 +205,10 @@ const styles = StyleSheet.create({
   },
   switchText: {
     fontSize: 14,
-    color: colors.textSecondary,
+    color: appColors.textSecondary,
   },
   switchLink: {
-    color: colors.primary,
+    color: appColors.primary,
     fontWeight: '600' as const,
   },
 });

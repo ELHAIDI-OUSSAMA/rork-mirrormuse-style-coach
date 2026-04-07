@@ -9,7 +9,9 @@
     "android": "expo start --android",
     "web": "expo start --web",
     "lint": "expo lint",
-    "build": "expo export"
+    "build": "expo export",
+    "import:pinterest:men": "node ./scripts/import-pinterest-seed.mjs --gender men",
+    "import:pinterest:women": "node ./scripts/import-pinterest-seed.mjs --gender women"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

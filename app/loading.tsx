@@ -5,13 +5,14 @@ import { Image } from 'expo-image';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import { Sparkles } from 'lucide-react-native';
+import { getTopPreferences, getUserStyleProfile } from '@/lib/preferenceModel';
 import { generateMockAnalysis, loadingTips } from '@/utils/mockAnalysis';
 import { detectItemsInOutfitImage } from '@/utils/closetExtraction';
 import { useApp } from '@/contexts/AppContext';
 import { StyleVibe, Occasion, LookAnalysis } from '@/types';
 import { space, radius, shadow, palette, type as typo } from '@/constants/theme';
 
-const ANALYSIS_CACHE_PREFIX = 'mirrormuse_analysis_v2';
+const ANALYSIS_CACHE_PREFIX = 'mirrormuse_analysis_v3';
 
 function hashString(value: string): string {
   let hash = 2166136261;
@@ -49,7 +50,7 @@ async function getImageFingerprint(imageUri: string): Promise<string> {
 export default function LoadingScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ imageUri: string; occasion: string; vibe: string }>();
-  const { preferences, themeColors, closetItems } = useApp();
+  const { preferences, closetItems } = useApp();
   const [currentTip, setCurrentTip] = useState(0);
   const [progress, setProgress] = useState(0);
   const fadeAnim = useRef(new Animated.Value(1)).current;
@@ -88,6 +89,13 @@ export default function LoadingScreen() {
       const imageUri = params.imageUri || '';
       const closetSnapshot = closetItems.map(item => ({ category: item.category, color: item.color }));
       const imageFingerprint = await getImageFingerprint(imageUri);
+      const styleProfile = await getUserStyleProfile();
+      const topPreferences = getTopPreferences(styleProfile);
+      const styleSignature = [
+        topPreferences.topVibes.join(','),
+        topPreferences.topOccasion || 'none',
+        topPreferences.topSeason || 'none',
+      ].join('|');
       const cacheKey = [
         ANALYSIS_CACHE_PREFIX,
         imageFingerprint,
@@ -95,6 +103,7 @@ export default function LoadingScreen() {
         vibe,
         preferences.budgetLevel,
         getClosetSignature(closetSnapshot),
+        styleSignature,
       ].join(':');
 
       const cached = await AsyncStorage.getItem(cacheKey);
@@ -124,6 +133,7 @@ export default function LoadingScreen() {
       const results = generateMockAnalysis(vibe, occasion, preferences.budgetLevel, closetSnapshot, {
         seed: `${imageFingerprint}:${occasion}:${vibe}`,
         detectedClothingItems: detectedItems,
+        topPreferences,
       });
       await AsyncStorage.setItem(cacheKey, JSON.stringify(results));
 

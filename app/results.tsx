@@ -23,8 +23,8 @@ import {
 } from 'lucide-react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { useApp } from '@/contexts/AppContext';
-import { LookAnalysis, ClosetItem } from '@/types';
-import { enqueueProcessing } from '@/lib/processingQueue';
+import { LookAnalysis, DetectedClothingItem } from '@/types';
+import { addImageToClosetPipeline } from '@/lib/closetPipeline';
 import { space, radius, shadow, palette, type as typo } from '@/constants/theme';
 import { Card } from '@/components/Card';
 import { IconButton } from '@/components/IconButton';
@@ -128,10 +128,16 @@ function VibePill({ tag, index, reduceMotion }: { tag: string; index: number; re
 export default function ResultsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ analysisId: string; analysisData: string }>();
-  const { addLook, savedLooks, addClosetItem, onOutfitCheckCompleted, themeColors, preferences } = useApp();
+  const {
+    addLook,
+    savedLooks,
+    addClosetItem,
+    onOutfitCheckCompleted,
+    avatarProfile,
+    renderDigitalTryOn,
+  } = useApp();
   const [analysis, setAnalysis] = useState<LookAnalysis | null>(null);
   const [isSaved, setIsSaved] = useState(false);
-  const [showExplanation, setShowExplanation] = useState(false);
   const [itemsAddedToCloset, setItemsAddedToCloset] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [toastTone, setToastTone] = useState<'info' | 'success' | 'warning'>('info');
@@ -223,6 +229,23 @@ export default function ResultsScreen() {
     }
   };
 
+  const handleTryOnTwin = async () => {
+    if (!analysis) return;
+    if (!avatarProfile || avatarProfile.status !== 'ready') {
+      router.push('/ai-twin/setup' as any);
+      return;
+    }
+    try {
+      await renderDigitalTryOn({
+        source: 'fit_check',
+        outfitId: analysis.id,
+      });
+      router.push('/ai-twin/status' as any);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not start try-on', 'warning');
+    }
+  };
+
   const heroAnimatedStyle = {
     opacity: heroOpacity,
     transform: [{ translateY: heroTranslateY }],
@@ -238,104 +261,65 @@ export default function ResultsScreen() {
     transform: [{ translateY: verdictTranslateY }],
   };
 
-  const CATEGORY_MAP: Record<string, string> = {
-    'T-shirt': 'T-shirt', 'Shirt': 'Shirt', 'Hoodie': 'Hoodie', 'Sweater': 'Sweater',
-    'Jacket': 'Jacket', 'Blazer': 'Blazer', 'Coat': 'Coat', 'Overshirt': 'Jacket',
-    'Pants': 'Pants', 'Jeans': 'Jeans', 'Shorts': 'Shorts',
-    'Sneakers': 'Sneakers', 'Loafers': 'Shoes', 'Boots': 'Boots', 'Shoes': 'Shoes',
-    'Belt': 'Belt', 'Bag': 'Bag', 'Watch': 'Watch',
-  };
-
-  const handleAddToCloset = () => {
+  const handleAddToCloset = async () => {
     if (!analysis || !analysis.results.detectedClothingItems) return;
     if (itemsAddedToCloset) {
       showToast('This outfit is already in your closet.', 'warning');
       return;
     }
 
-    const detectedItems = analysis.results.detectedClothingItems.filter(
-      (item: any) =>
-        item.visibility === 'visible' ||
-        (item.visibility === 'partial' && typeof item.confidence === 'number' && item.confidence >= 0.7)
-    );
-
-    const seen = new Set<string>();
-    const dedupedItems = detectedItems.filter((item: any) => {
-      const key = `${(item.region || '').toLowerCase()}|${(item.subcategory || '').toLowerCase()}|${(item.color || '').toLowerCase()}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-
-    if (dedupedItems.length === 0) {
-      Alert.alert(
-        'No items found',
-        'Try a full-body photo with better lighting for best results.',
-        [{ text: 'Got it' }]
-      );
-      return;
-    }
-
     setItemsAddedToCloset(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-    const screenWidth = Dimensions.get('window').width;
-
-    let addedCount = 0;
-    let duplicateCount = 0;
-
-    for (let i = 0; i < dedupedItems.length; i++) {
-      const detected = dedupedItems[i];
-      const id = `closet_outfit_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`;
-      const category = CATEGORY_MAP[detected.subcategory] || 'T-shirt';
-
-      const newItem: ClosetItem = {
-        id,
+    try {
+      // Reuse already-detected pieces from Outfit Check so add-to-closet follows
+      // the same decomposition profile the user just reviewed on this screen.
+      const preDetectedItems: DetectedClothingItem[] = Array.isArray(analysis.results.detectedClothingItems)
+        ? analysis.results.detectedClothingItems
+        : [];
+      const result = await addImageToClosetPipeline({
+        source: 'closet_upload',
         imageUri: analysis.imageUri,
-        category: category as any,
-        color: detected.color || 'Unknown',
-        styleTags: [],
-        createdAt: new Date().toISOString(),
-        source: 'auto_extracted',
-        position: {
-          x: Math.random() * (screenWidth - 120) + 16,
-          y: Math.random() * 300,
-          rotation: (Math.random() - 0.5) * 16,
-          scale: 0.85 + Math.random() * 0.25,
+        addClosetItem,
+        preDetectedItems,
+        onProgress: ({ stage, message }) => {
+          if (stage === 'detecting') {
+            showToast('Detected outfit photo → extracting jacket, jeans, sneakers…', 'info');
+          } else if (stage === 'creating_placeholders' || stage === 'saving') {
+            showToast(message, 'info');
+          }
         },
-        usageCount: 0,
-        outlineEnabled: true,
-        isProcessing: true,
-        processingStatus: 'queued',
-        processingStep: 'adding',
-      };
+      });
 
-      const addResult = addClosetItem(newItem);
-      if (addResult?.added) {
-        addedCount += 1;
-        enqueueProcessing(id, analysis.imageUri, {
-          itemDescription: `${detected.color} ${detected.subcategory}`,
-          region: detected.region,
-          detectedCategory: category,
-          detectedColor: detected.color,
-        });
-      } else {
-        duplicateCount += 1;
+      if (result.addedCount === 0) {
+        setItemsAddedToCloset(false);
+        if ((result.detectedItems?.length || 0) < 2) {
+          Alert.alert(
+            'No items found',
+            'We could not confidently identify at least 2 separate pieces in this image.',
+            [{ text: 'Got it' }]
+          );
+        } else {
+          showToast('Already added: all detected items are in your closet.', 'warning');
+        }
+        return;
       }
-    }
 
-    if (addedCount === 0) {
+      if (result.hasFootwear === false) {
+        showToast('Footwear not visible — skipping shoes.', 'info');
+      }
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (result.failedCount > 0) {
+        showToast(`Added ${result.addedCount} items. ${result.failedCount} piece(s) couldn’t be extracted.`, 'warning');
+      } else if (result.duplicateCount > 0) {
+        showToast(`Added ${result.addedCount} item(s). Skipped ${result.duplicateCount} duplicate(s).`, 'info');
+      } else {
+        showToast(`Added ${result.addedCount} item(s) to your closet.`, 'success');
+      }
+    } catch (error) {
       setItemsAddedToCloset(false);
-      showToast('Already added: all detected items are in your closet.', 'warning');
-      return;
-    }
-
-    setItemsAddedToCloset(true);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    if (duplicateCount > 0) {
-      showToast(`Added ${addedCount} item(s). Skipped ${duplicateCount} duplicate(s).`, 'info');
-    } else {
-      showToast(`Added ${addedCount} item(s) to your closet.`, 'success');
+      console.log('[Results] closet pipeline failed:', error);
+      Alert.alert('Could not add to closet', 'Please try again.');
     }
   };
 
@@ -538,6 +522,17 @@ export default function ResultsScreen() {
           </View>
           </PressableScale>
         </View>
+        <View style={s.twinRow}>
+          <PressableScale
+            haptic
+            onPress={handleTryOnTwin}
+            style={{ flex: 1 }}
+          >
+            <View style={[s.bottomBtn, s.bottomBtnOutline]}>
+              <Text style={s.bottomBtnText}>Try on with my Twin</Text>
+            </View>
+          </PressableScale>
+        </View>
         <Toast visible={toastVisible} message={toastMessage} tone={toastTone} />
       </SafeAreaView>
     </View>
@@ -680,6 +675,10 @@ const s = StyleSheet.create({
     flexDirection: 'row', paddingHorizontal: space.screen,
     paddingTop: 12, paddingBottom: 12, gap: 12,
     backgroundColor: palette.warmWhite,
+  },
+  twinRow: {
+    paddingHorizontal: space.screen,
+    paddingBottom: 8,
   },
   bottomBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',

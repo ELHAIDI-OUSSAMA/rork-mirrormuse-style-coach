@@ -1,24 +1,37 @@
-export type InspirationSource = 'pinterest' | 'fallback';
-export type SwipeAction = 'like' | 'dislike' | 'save' | 'similar';
+export type Gender = 'men' | 'women';
+export type Season = 'summer' | 'winter' | 'spring' | 'fall' | 'all';
+export type Occasion = 'casual' | 'work' | 'date' | 'streetwear' | 'formal' | 'athletic' | 'travel' | 'party';
 
-export type InspirationCard = {
+export type InspirationItem = {
   id: string;
-  source: InspirationSource;
+  gender: Gender;
   imageUrl: string;
-  thumbnailUrl?: string;
-  linkUrl?: string;
-  title?: string;
-  gender: 'men' | 'women';
-  tags?: string[];
-  occasion?: string;
-  palette?: string[];
+  pinUrl: string;
+  vibeTags: string[];
+  season: Season;
+  occasion: Occasion;
+  createdAt: string;
+  source: 'pinterest_seed';
 };
+
+export type PinFeedback = {
+  id: string;
+  pinUrl: string;
+  imageUrl: string;
+  gender: Gender;
+  tags?: string[];
+  likedAt?: string;
+  savedAt?: string;
+};
+
+export type InspirationCard = InspirationItem;
+export type SwipeAction = 'like' | 'dislike' | 'save' | 'similar';
 
 export type SwipeEvent = {
   cardId: string;
   action: SwipeAction;
   ts: string;
-  gender: 'men' | 'women';
+  gender: Gender;
   tags?: string[];
 };
 
@@ -29,7 +42,7 @@ export type InspirationCalibration = {
 };
 
 export type InspirationPersistentState = {
-  gender: 'men' | 'women';
+  gender: Gender;
   likes: string[];
   saves: string[];
   tagWeights: Record<string, number>;

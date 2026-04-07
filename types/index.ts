@@ -63,7 +63,7 @@ export interface ClosetItemPosition {
 }
 
 export type ProcessingStatus = 'queued' | 'processing' | 'done' | 'failed';
-export type ProcessingStep = 'adding' | 'scanning' | 'removing_bg' | 'creating_sticker' | 'finalizing';
+export type ProcessingStep = 'adding' | 'scanning' | 'removing_bg' | 'creating_sticker' | 'finalizing' | 'retrying';
 
 export interface ClosetItem {
   id: string;
@@ -74,15 +74,66 @@ export interface ClosetItem {
   color: string;
   styleTags: string[];
   createdAt: string;
-  source: 'manual' | 'auto_extracted';
+  source: 'manual' | 'auto_extracted' | 'search' | 'barcode';
+  brand?: string;
+  size?: string;
+  price?: number;
+  currency?: string;
+  sourceUrl?: string;
+  upc?: string;
+  imageRemoteUrl?: string;
   position?: ClosetItemPosition;
   usageCount: number;
   lastUsedAt?: string;
+  lastWornAt?: string;
+  status?: 'active' | 'cleanup_candidate' | 'listed_for_sale' | 'sold' | 'donated' | 'archived';
+  marketplaceListingId?: string;
+  donationIntent?: boolean;
+  cleanupDismissedUntil?: string;
+  estimatedResaleValue?: number;
+  estimatedDonationValue?: number;
+  lifecycleUpdatedAt?: string;
+  marketDemandScore?: number;
+  sellOpportunityScore?: number;
+  lastSellOpportunityAt?: string;
   outlineEnabled?: boolean;
   isProcessing?: boolean;
   processingStatus?: ProcessingStatus;
   processingStep?: ProcessingStep;
   processingError?: string;
+  outfitContext?: {
+    itemDescription: string;
+    region: string;
+    sourceImageUri?: string;
+    detectedCategory?: string;
+    detectedColor?: string;
+    bbox?: { x: number; y: number; w: number; h: number };
+    notes?: string;
+  };
+}
+
+export interface AvatarProfile {
+  id: string;
+  createdAt: string;
+  faceImageUri: string;
+  bodyImageUri: string;
+  status: 'none' | 'creating' | 'ready' | 'error';
+  twinImageUri?: string;
+  errorMessage?: string;
+  lastRenderAt?: string;
+  notes?: string;
+}
+
+export interface VirtualTryOnRender {
+  id: string;
+  avatarId: string;
+  outfitId?: string;
+  closetItemIds?: string[];
+  source: 'outfit_builder' | 'fit_check';
+  status?: 'processing' | 'ready' | 'error';
+  errorMessage?: string;
+  renderImageUri: string;
+  createdAt: string;
 }
 
 export type ClothingRegion = 'upper_outer' | 'upper_inner' | 'lower' | 'feet' | 'accessory';
@@ -102,6 +153,7 @@ export interface DetectedClothingItem {
   visibility: 'visible' | 'partial' | 'not_visible';
   region: ClothingRegion;
   evidence: string;
+  notes?: string;
   bbox?: { x: number; y: number; w: number; h: number };
 }
 
@@ -181,7 +233,7 @@ export interface SavedInspiration {
   inspirationId: string;
   imageUrl: string;
   thumbnailUrl: string;
-  source: 'pexels' | 'unsplash' | 'pinterest' | 'fallback';
+  source: 'pexels' | 'unsplash' | 'pinterest' | 'fallback' | 'pinterest_seed' | 'api_refresh';
   author: string;
   styleTags: string[];
   savedAt: string;
@@ -194,8 +246,6 @@ export interface WeatherSnapshot {
   date: string;
   location?: string;
 }
-
-export * from './inspiration';
 
 export interface PlannedOutfitItem {
   closetItemId: string;
@@ -295,6 +345,19 @@ export interface ClosetInsights {
   categoryCounts: Record<string, number>;
 }
 
+export interface ImportedOutfit {
+  id: string;
+  sourcePlatform: 'instagram' | 'tiktok' | 'pinterest' | 'safari' | 'other';
+  sourceUrl: string;
+  postUrl?: string;
+  mediaUrl?: string;
+  thumbnailUri?: string;
+  imageUri: string;
+  detectedItems: DetectedClothingItem[];
+  createdAt: string;
+  sourceFingerprint: string;
+}
+
 export interface SavedPinterestPin {
   id: string;
   pinUrl: string;
@@ -389,3 +452,5 @@ export const BUDGET_LEVELS: BudgetLevel[] = ['$', '$$', '$$$'];
 export const TONE_PREFERENCES: TonePreference[] = ['Gentle', 'Blunt'];
 
 export * from './gamification';
+export * from './marketplace';
+export * from './demand';

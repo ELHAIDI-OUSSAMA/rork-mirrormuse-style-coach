@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Animated, View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Camera, Image as ImageIcon, Sparkles, ChevronDown, CalendarClock, Flame, ArrowRight } from 'lucide-react-native';
+import { Camera, Image as ImageIcon, Sparkles, ChevronDown, CalendarClock, Flame, ArrowRight, HeartHandshake, BellRing, Wallet, TrendingUp, Link2 } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import { useApp } from '@/contexts/AppContext';
@@ -15,10 +15,25 @@ import { OCCASIONS, FEMALE_STYLE_VIBES, MALE_STYLE_VIBES, Occasion, StyleVibe, W
 import { getLiveWeatherForDate } from '@/utils/weather';
 import { getXpProgress } from '@/utils/gamification';
 import { easings, useReduceMotion } from '@/lib/motion';
+import { trackSocialImportEvent } from '@/lib/socialImportEntry';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { preferences, themeColors, closetItems, gamificationState, setCurrentWeather } = useApp();
+  const {
+    preferences,
+    themeColors,
+    closetItems,
+    cleanupCandidates,
+    demandNotifications,
+    getClosetItemById,
+    markDemandNotificationSeen,
+    closetValueInsights,
+    stylePersonalityInsights,
+    gamificationState,
+    setCurrentWeather,
+    sellOpportunities,
+    highDemandSellOpportunities,
+  } = useApp();
 
   const styleVibes = preferences.gender === 'male' ? MALE_STYLE_VIBES : FEMALE_STYLE_VIBES;
 
@@ -134,6 +149,8 @@ export default function HomeScreen() {
     }
   };
 
+  const topDemandAlert = demandNotifications.find((item) => !item.seen) || demandNotifications[0];
+
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -183,6 +200,81 @@ export default function HomeScreen() {
             </View>
           </Card>
 
+          <Card style={styles.importCard} padding="medium" variant="elevated">
+            <View style={styles.planHeader}>
+              <View style={styles.importIcon}>
+                <Link2 size={20} color={palette.accentDark} />
+              </View>
+              <View style={styles.planText}>
+                <Text style={styles.planTitle}>Import from social media</Text>
+                <Text style={styles.planSubtitle}>
+                  Turn online outfit inspiration into saved looks, closet items, and outfit ideas
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.importSources}>Instagram • TikTok • Pinterest • Safari</Text>
+            <Button
+              title="Import outfit"
+              onPress={() => {
+                trackSocialImportEvent('import_social_home_cta_tapped');
+                router.push('/import-social' as any);
+              }}
+              variant="secondary"
+              size="medium"
+              icon={<ArrowRight size={18} color="#FFFFFF" />}
+            />
+          </Card>
+
+          {topDemandAlert ? (
+            <Card style={styles.demandCard} padding="medium" variant="outlined">
+              <View style={styles.planHeader}>
+                <View style={styles.demandIcon}>
+                  <BellRing size={20} color={palette.secondary} />
+                </View>
+                <View style={styles.planText}>
+                  <Text style={styles.planTitle}>High demand alert</Text>
+                  <Text style={styles.planSubtitle}>{topDemandAlert.message}</Text>
+                </View>
+              </View>
+              <Text style={styles.demandMeta}>
+                Demand: {topDemandAlert.demandLevel.toUpperCase()} · Est. resale value: ${topDemandAlert.estimatedResaleValue}
+              </Text>
+              <Button
+                title="List this item"
+                onPress={() => {
+                  const closetItem = getClosetItemById(topDemandAlert.closetItemId);
+                  markDemandNotificationSeen(topDemandAlert.id);
+                  if (!closetItem) return;
+                  router.push({ pathname: '/marketplace/create-listing', params: { closetItemId: closetItem.id } } as any);
+                }}
+                variant="secondary"
+                size="medium"
+                icon={<ArrowRight size={18} color="#FFFFFF" />}
+              />
+            </Card>
+          ) : null}
+
+          <Card style={styles.quickInsightCard} padding="medium" variant="outlined">
+            <View style={styles.planHeader}>
+              <View style={styles.quickInsightIcon}>
+                <TrendingUp size={20} color={palette.secondaryDark} />
+              </View>
+              <View style={styles.planText}>
+                <Text style={styles.planTitle}>Sell what&apos;s in demand</Text>
+                <Text style={styles.planSubtitle}>
+                  Some items in your closet could sell quickly ({highDemandSellOpportunities.length} high demand)
+                </Text>
+              </View>
+            </View>
+            <Button
+              title={sellOpportunities.length > 0 ? 'Review opportunities' : 'View sell opportunities'}
+              onPress={() => router.push('/sell-opportunities' as any)}
+              variant="outline"
+              size="medium"
+              icon={<ArrowRight size={16} color={themeColors.primary} />}
+            />
+          </Card>
+
           <Card style={styles.planCard} padding="medium" variant="flat">
             <View style={styles.planHeader}>
               <View style={styles.planIcon}>
@@ -204,6 +296,65 @@ export default function HomeScreen() {
               size="medium"
               icon={<Sparkles size={18} color="#FFFFFF" />}
               disabled={closetItems.length < 2}
+            />
+          </Card>
+
+          <Card style={styles.cleanupCard} padding="medium" variant="elevated">
+            <View style={styles.planHeader}>
+              <View style={styles.cleanupIcon}>
+                <HeartHandshake size={22} color={palette.accentDark} />
+              </View>
+              <View style={styles.planText}>
+                <Text style={styles.planTitle}>Give your clothes a second life</Text>
+                <Text style={styles.planSubtitle}>
+                  Sell or donate what you no longer wear
+                </Text>
+              </View>
+            </View>
+            <Button
+              title={cleanupCandidates.length > 0 ? `Review ${cleanupCandidates.length} item${cleanupCandidates.length > 1 ? 's' : ''}` : 'Open Closet Cleanup'}
+              onPress={() => router.push('/closet-cleanup' as any)}
+              variant="secondary"
+              size="medium"
+              icon={<ArrowRight size={18} color="#FFFFFF" />}
+            />
+          </Card>
+
+          <Card style={styles.quickInsightCard} padding="medium" variant="outlined">
+            <View style={styles.planHeader}>
+              <View style={styles.quickInsightIcon}>
+                <Sparkles size={20} color={palette.accentDark} />
+              </View>
+              <View style={styles.planText}>
+                <Text style={styles.planTitle}>Discover your fashion identity</Text>
+                <Text style={styles.planSubtitle}>{stylePersonalityInsights.personality}</Text>
+              </View>
+            </View>
+            <Button
+              title="Open Style Personality"
+              onPress={() => router.push('/style-personality' as any)}
+              variant="outline"
+              size="medium"
+              icon={<ArrowRight size={16} color={themeColors.primary} />}
+            />
+          </Card>
+
+          <Card style={styles.quickInsightCard} padding="medium" variant="outlined">
+            <View style={styles.planHeader}>
+              <View style={styles.quickInsightIcon}>
+                <Wallet size={20} color={palette.secondary} />
+              </View>
+              <View style={styles.planText}>
+                <Text style={styles.planTitle}>How much is your closet worth?</Text>
+                <Text style={styles.planSubtitle}>Estimated value ${closetValueInsights.totalClosetValue.toLocaleString()}</Text>
+              </View>
+            </View>
+            <Button
+              title="Open Closet Value"
+              onPress={() => router.push('/closet-value' as any)}
+              variant="outline"
+              size="medium"
+              icon={<ArrowRight size={16} color={themeColors.primary} />}
             />
           </Card>
 
@@ -388,6 +539,68 @@ const styles = StyleSheet.create({
     marginBottom: space.xl,
     backgroundColor: palette.secondaryLight,
     borderWidth: 0,
+  },
+  cleanupCard: {
+    marginBottom: space.xl,
+    backgroundColor: palette.white,
+  },
+  importCard: {
+    marginBottom: space.xl,
+    backgroundColor: palette.white,
+  },
+  importIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: space.md,
+    backgroundColor: palette.accentLight,
+  },
+  importSources: {
+    ...typo.small,
+    color: palette.inkMuted,
+    marginBottom: space.md,
+  },
+  cleanupIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: space.md,
+    backgroundColor: palette.accentLight,
+  },
+  demandCard: {
+    marginBottom: space.xl,
+    borderColor: palette.secondary + '40',
+  },
+  demandIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: space.md,
+    backgroundColor: palette.secondaryLight,
+  },
+  demandMeta: {
+    ...typo.caption,
+    color: palette.inkMuted,
+    marginBottom: space.md,
+  },
+  quickInsightCard: {
+    marginBottom: space.xl,
+    borderColor: palette.borderLight,
+  },
+  quickInsightIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: space.md,
+    backgroundColor: palette.warmWhiteDark,
   },
   progressCard: {
     marginBottom: space.xl,

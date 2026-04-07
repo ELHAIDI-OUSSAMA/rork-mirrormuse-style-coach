@@ -1,7 +1,7 @@
 import { Tabs } from 'expo-router';
-import { Home, Sparkles, Shirt, Bookmark, Settings } from 'lucide-react-native';
+import { Home, Sparkles, Shirt, Bookmark, Settings, Store } from 'lucide-react-native';
 import { useApp } from '@/contexts/AppContext';
-import { palette, radius } from '@/constants/theme';
+import { palette } from '@/constants/theme';
 
 export default function TabLayout() {
   const { themeColors } = useApp();
@@ -53,6 +53,13 @@ export default function TabLayout() {
         options={{
           title: 'Closet',
           tabBarIcon: ({ color }) => <Shirt size={22} color={color} strokeWidth={1.8} />,
+        }}
+      />
+      <Tabs.Screen
+        name="marketplace"
+        options={{
+          title: 'Market',
+          tabBarIcon: ({ color }) => <Store size={22} color={color} strokeWidth={1.8} />,
         }}
       />
       <Tabs.Screen

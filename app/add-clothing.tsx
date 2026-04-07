@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
-  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -21,11 +20,8 @@ import { useRouter } from 'expo-router';
 
 import { useApp } from '@/contexts/AppContext';
 import { ClosetItem } from '@/types';
-import { enqueueProcessing } from '@/lib/processingQueue';
-import { classifyPhotoType, detectItemsInOutfitImage } from '@/utils/closetExtraction';
+import { addImageToClosetPipeline } from '@/lib/closetPipeline';
 import { Toast } from '@/components/Toast';
-
-const { width } = Dimensions.get('window');
 
 const GUIDANCE_TIPS = [
   'Place item on plain background (bed/sheet/wall)',
@@ -37,8 +33,9 @@ const GUIDANCE_TIPS = [
 
 export default function AddClothingScreen() {
   const router = useRouter();
-  const { addClosetItem, themeColors, preferences } = useApp();
+  const { addClosetItem, removeClosetItem, themeColors, preferences } = useApp();
   const [busy, setBusy] = useState(false);
+  const [busyMessage, setBusyMessage] = useState('');
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [toastTone, setToastTone] = useState<'info' | 'success' | 'warning'>('info');
@@ -61,39 +58,22 @@ export default function AddClothingScreen() {
       }
     }
 
-    const result =
+    const pickerResult =
       source === 'camera'
         ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.9 })
         : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.9 });
 
-    if (result.canceled || !result.assets[0]) return;
+    if (pickerResult.canceled || !pickerResult.assets[0]) return;
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const imageUri = result.assets[0].uri;
+    const imageUri = pickerResult.assets[0].uri;
 
     setBusy(true);
+    setBusyMessage('Scanning...');
 
-    try {
-      const photoType = await classifyPhotoType(imageUri);
-      console.log('[AddClothing] Photo type:', photoType);
-
-      if (photoType === 'outfit_photo') {
-        await handleOutfitPhoto(imageUri);
-      } else {
-        instantAddSingleItem(imageUri);
-      }
-    } catch {
-      instantAddSingleItem(imageUri);
-    }
-
-    setBusy(false);
-  };
-
-  const instantAddSingleItem = (imageUri: string) => {
-    const id = `closet_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-
-    const newItem: ClosetItem = {
-      id,
+    const stagingId = `closet_scan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const stagingItem: ClosetItem = {
+      id: stagingId,
       imageUri,
       category: 'T-shirt',
       color: 'Unknown',
@@ -101,7 +81,7 @@ export default function AddClothingScreen() {
       createdAt: new Date().toISOString(),
       source: 'manual',
       position: {
-        x: Math.random() * (width - 120) + 16,
+        x: Math.random() * 220 + 16,
         y: Math.random() * 300,
         rotation: (Math.random() - 0.5) * 16,
         scale: 0.85 + Math.random() * 0.25,
@@ -112,96 +92,52 @@ export default function AddClothingScreen() {
       processingStatus: 'queued',
       processingStep: 'adding',
     };
+    addClosetItem(stagingItem);
 
-    const result = addClosetItem(newItem);
-    if (!result?.added) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      showToast('Already added: this item is already in your closet.', 'warning');
-      return;
-    }
-
-    enqueueProcessing(id, imageUri);
-
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    // Non-blocking UX: go back to closet immediately while pipeline continues in background.
     router.replace('/(tabs)/closet' as any);
-  };
+    setBusy(false);
+    setBusyMessage('');
 
-  const CATEGORY_MAP: Record<string, string> = {
-    'T-shirt': 'T-shirt', 'Shirt': 'Shirt', 'Hoodie': 'Hoodie', 'Sweater': 'Sweater',
-    'Jacket': 'Jacket', 'Blazer': 'Blazer', 'Coat': 'Coat', 'Overshirt': 'Jacket',
-    'Pants': 'Pants', 'Jeans': 'Jeans', 'Shorts': 'Shorts',
-    'Sneakers': 'Sneakers', 'Loafers': 'Shoes', 'Boots': 'Boots', 'Shoes': 'Shoes',
-    'Belt': 'Belt', 'Bag': 'Bag', 'Watch': 'Watch',
-  };
-
-  const handleOutfitPhoto = async (imageUri: string) => {
-    const detectedItems = await detectItemsInOutfitImage(imageUri);
-    const seen = new Set<string>();
-    const dedupedItems = detectedItems.filter((item: any) => {
-      const key = `${(item.region || '').toLowerCase()}|${(item.subcategory || '').toLowerCase()}|${(item.color || '').toLowerCase()}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-    console.log('[AddClothing] Detected items:', detectedItems.length, 'deduped:', dedupedItems.length);
-
-    if (dedupedItems.length === 0) {
-      instantAddSingleItem(imageUri);
-      return;
-    }
-
-    let addedCount = 0;
-    let duplicateCount = 0;
-
-    for (let i = 0; i < dedupedItems.length; i++) {
-      const detected = dedupedItems[i];
-      const id = `closet_outfit_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`;
-      const category = CATEGORY_MAP[detected.subcategory] || 'T-shirt';
-
-      const newItem: ClosetItem = {
-        id,
+    void (async () => {
+      try {
+      const pipelineResult = await addImageToClosetPipeline({
+        source: source === 'camera' ? 'closet_camera' : 'closet_upload',
         imageUri,
-        category: category as any,
-        color: detected.color || 'Unknown',
-        styleTags: [],
-        createdAt: new Date().toISOString(),
-        source: 'auto_extracted',
-        position: {
-          x: Math.random() * (width - 120) + 16,
-          y: Math.random() * 300,
-          rotation: (Math.random() - 0.5) * 16,
-          scale: 0.85 + Math.random() * 0.25,
+        addClosetItem,
+        onProgress: ({ message }) => {
+          setBusyMessage(message);
         },
-        usageCount: 0,
-        outlineEnabled: true,
-        isProcessing: true,
-        processingStatus: 'queued',
-        processingStep: 'adding',
-      };
+      });
 
-      const result = addClosetItem(newItem);
-      if (result?.added) {
-        addedCount += 1;
-        enqueueProcessing(id, imageUri, {
-          itemDescription: `${detected.color} ${detected.subcategory}`,
-          region: detected.region,
-          detectedCategory: category,
-          detectedColor: detected.color,
-        });
-      } else {
-        duplicateCount += 1;
+      // Remove temporary staging row once real placeholders/results have been created.
+      removeClosetItem(stagingId);
+
+      if (pipelineResult.addedCount === 0) {
+        const detected = pipelineResult.detectedItems?.length || 0;
+        if (detected === 0 && pipelineResult.classification.type !== 'single_item') {
+          console.log('[AddClothing] No pieces detected from uploaded image');
+        } else if (pipelineResult.duplicateCount > 0) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          showToast('Already added: detected pieces are already in your closet.', 'warning');
+        } else {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          showToast('Items detected but could not be added. Try again.', 'warning');
+        }
+        return;
       }
-    }
 
-    if (addedCount === 0) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      showToast('Already added: all detected pieces are already in your closet.', 'warning');
-      return;
-    }
-
-    console.log(`[AddClothing] Instantly added ${addedCount} outfit items to closet (${duplicateCount} duplicates skipped)`);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    router.replace('/(tabs)/closet' as any);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const count = pipelineResult.addedCount;
+      const partial = pipelineResult.failedCount > 0
+        ? ` (${pipelineResult.failedCount} couldn't be extracted)`
+        : '';
+      showToast(`Added ${count} item${count > 1 ? 's' : ''} - stickers processing in background${partial}`, 'success');
+      } catch (error) {
+        console.log('[AddClothing] closet pipeline failed:', error);
+        removeClosetItem(stagingId);
+      }
+    })();
   };
 
   const gradientColors = preferences.gender === 'male'
@@ -253,7 +189,7 @@ export default function AddClothingScreen() {
               >
                 <Camera size={24} color="#FFF" />
                 <Text style={styles.captureButtonText}>
-                  {busy ? 'Analyzing photo…' : 'Take Photo'}
+                  {busy ? busyMessage || 'Scanning...' : 'Take Photo'}
                 </Text>
               </TouchableOpacity>
 
@@ -264,7 +200,7 @@ export default function AddClothingScreen() {
               >
                 <ImageIcon size={24} color="#FFF" />
                 <Text style={styles.captureButtonText}>
-                  {busy ? 'Analyzing photo…' : 'Upload from Gallery'}
+                  {busy ? busyMessage || 'Scanning...' : 'Upload from Gallery'}
                 </Text>
               </TouchableOpacity>
             </View>
