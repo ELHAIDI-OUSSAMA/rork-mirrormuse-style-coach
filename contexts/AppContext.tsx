@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Platform } from 'react-native';
 import {
   UserPreferences,
   LookAnalysis,
@@ -109,6 +110,38 @@ const SELLER_PROFILES_KEY = 'mirrormuse_seller_profiles_v1';
 const DEMAND_SIGNALS_KEY = 'mirrormuse_demand_signals_v1';
 const SELL_OPPORTUNITIES_KEY = 'mirrormuse_sell_opportunities_v1';
 const SELL_OPP_LAST_NOTIFICATION_AT_KEY = 'mirrormuse_sell_opp_last_notification_at_v1';
+
+const isBase64Uri = (uri?: string): boolean =>
+  !!uri && (uri.startsWith('data:') || uri.length > 5000);
+
+const stripLargeDataForStorage = (items: ClosetItem[]): ClosetItem[] => {
+  if (Platform.OS !== 'web') return items;
+  return items.map((item) => {
+    const next = { ...item };
+    if (isBase64Uri(next.imageUri)) {
+      next.imageUri = next.imageRemoteUrl || '';
+    }
+    if (isBase64Uri(next.stickerPngUri)) {
+      next.stickerPngUri = undefined;
+    }
+    return next;
+  });
+};
+
+const safeSetItem = async (key: string, value: string): Promise<boolean> => {
+  try {
+    await AsyncStorage.setItem(key, value);
+    return true;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('quota') || message.includes('Quota') || message.includes('exceeded')) {
+      console.log(`[Storage] Quota exceeded for key "${key}"`);
+      return false;
+    }
+    console.log(`[Storage] setItem failed for key "${key}":`, message);
+    return false;
+  }
+};
 
 const defaultPreferences: UserPreferences = {
   gender: undefined,
@@ -407,7 +440,8 @@ export const [AppProvider, useApp] = createContextHook(() => {
         setClosetItems(normalized);
         closetItemsRef.current = normalized;
         queryClient.setQueryData(['closet'], normalized);
-        await AsyncStorage.setItem(CLOSET_KEY, JSON.stringify(normalized));
+        const storageItems = stripLargeDataForStorage(normalized);
+        await safeSetItem(CLOSET_KEY, JSON.stringify(storageItems));
       }
       cleanupOrphanStickerFiles(normalized).catch(() => {});
     };
@@ -944,10 +978,19 @@ export const [AppProvider, useApp] = createContextHook(() => {
     return savedLooks.find(l => l.id === lookId);
   }, [savedLooks]);
 
-  const persistCloset = useCallback((items: ClosetItem[]) => {
+  const persistCloset = useCallback(async (items: ClosetItem[]) => {
     const normalized = items.map(normalizeClosetItemState);
     queryClient.setQueryData(['closet'], normalized);
-    AsyncStorage.setItem(CLOSET_KEY, JSON.stringify(normalized));
+    const storageItems = stripLargeDataForStorage(normalized);
+    const json = JSON.stringify(storageItems);
+    const ok = await safeSetItem(CLOSET_KEY, json);
+    if (!ok) {
+      const half = storageItems.slice(0, Math.max(1, Math.floor(storageItems.length / 2)));
+      const ok2 = await safeSetItem(CLOSET_KEY, JSON.stringify(half));
+      if (!ok2) {
+        console.log('[Storage] Still over quota after halving closet items');
+      }
+    }
   }, [normalizeClosetItemState, queryClient]);
 
   const persistMarketplaceListings = useCallback((items: MarketplaceListing[]) => {
