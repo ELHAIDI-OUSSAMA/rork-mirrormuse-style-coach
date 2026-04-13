@@ -3,10 +3,26 @@ import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect } from "react";
+import { LogBox, Platform } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { AppProvider } from "@/contexts/AppContext";
 
 SplashScreen.preventAutoHideAsync();
+
+LogBox.ignoreLogs([
+  'Received `false` for a non-boolean attribute `collapsable`',
+]);
+
+if (Platform.OS === 'web') {
+  const originalConsoleError = console.error;
+  console.error = (...args: unknown[]) => {
+    const message = typeof args[0] === 'string' ? args[0] : '';
+    if (message.includes('non-boolean attribute') && message.includes('collapsable')) {
+      return;
+    }
+    originalConsoleError(...args);
+  };
+}
 
 const queryClient = new QueryClient();
 
