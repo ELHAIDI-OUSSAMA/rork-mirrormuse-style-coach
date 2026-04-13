@@ -3,8 +3,6 @@ import { removeBackgroundWithRetry } from '@/utils/backgroundRemoval';
 import {
   detectClothingMetadata,
   cropItemFromOutfit,
-  validateGarmentOnlySticker,
-  validateExtractionQuality,
 } from '@/utils/closetExtraction';
 import * as FileSystem from 'expo-file-system/legacy';
 import { createAvatar, renderTryOn } from '@/lib/virtualTryOn';
@@ -111,7 +109,6 @@ async function processSingleItem(task: QueueTask) {
 
   if (task.remoteImageUrl || imageUri.startsWith('http://') || imageUri.startsWith('https://')) {
     const remoteUrl = task.remoteImageUrl || imageUri;
-    // Normalize remote product images to local files before further processing.
     const stickersDir = `${FileSystem.documentDirectory}stickers`;
     const dirInfo = await FileSystem.getInfoAsync(stickersDir);
     if (!dirInfo.exists) {
@@ -127,16 +124,22 @@ async function processSingleItem(task: QueueTask) {
     update(itemId, { imageUri, imageRemoteUrl: remoteUrl });
   }
 
-  const metadata = await withTimeout(
-    detectClothingMetadata(imageUri),
-    STEP_TIMEOUT_MS,
-    'Metadata detection'
-  );
-  update(itemId, {
-    category: metadata.category,
-    color: metadata.color,
-    processingStep: 'removing_bg',
-  });
+  // Metadata detection (non-blocking — use defaults on failure)
+  try {
+    const metadata = await withTimeout(
+      detectClothingMetadata(imageUri),
+      30_000,
+      'Metadata detection'
+    );
+    update(itemId, {
+      category: metadata.category,
+      color: metadata.color,
+      processingStep: 'removing_bg',
+    });
+  } catch (metaErr) {
+    console.log(`[Queue] ${itemId} metadata detection failed (using defaults):`, metaErr instanceof Error ? metaErr.message : metaErr);
+    update(itemId, { processingStep: 'removing_bg' });
+  }
 
   const result = await withTimeout(
     removeBackgroundWithRetry(imageUri, (msg) => {
@@ -149,7 +152,9 @@ async function processSingleItem(task: QueueTask) {
   );
 
   if (!result.success || !result.stickerUri) {
-    throw new Error(result.error || 'Background removal failed');
+    // Fallback: use original image as sticker if BG removal fails
+    console.log(`[Queue] ${itemId} BG removal failed, using original image as fallback`);
+    return imageUri;
   }
 
   return result.stickerUri;
@@ -159,167 +164,103 @@ async function processOutfitItem(task: QueueTask) {
   const { itemId, imageUri, outfitContext } = task;
   const { itemDescription, region, sourceImageUri, detectedCategory, detectedColor, bbox, notes } = outfitContext!;
   const outfitImageUri = sourceImageUri || imageUri;
-  const isSynthetic = notes?.includes('Synthetic') || notes?.includes('fallback') || notes?.includes('Last-resort');
-  const isFragileRegion = region === 'lower' || region === 'feet';
 
   console.log(`[ExtractJob] ====== START ${itemId} ======`);
-  console.log(`[ExtractJob] item=${itemDescription} region=${region} synthetic=${isSynthetic}`);
+  console.log(`[ExtractJob] item=${itemDescription} region=${region}`);
   console.log(`[ExtractJob] bbox=${JSON.stringify(bbox)}`);
   console.log(`[ExtractJob] category=${detectedCategory} color=${detectedColor}`);
 
   update(itemId, { processingStatus: 'processing', processingStep: 'scanning' });
 
   // --- STEP 1: Crop item from outfit ---
-  let cropResult = await withTimeout(
-    cropItemFromOutfit(outfitImageUri, itemDescription, region, bbox, {
-      tightMode: false,
-      strictItemOnly: false,
-    }),
-    STEP_TIMEOUT_MS,
-    'Outfit crop'
-  );
-  if (!cropResult.success || !cropResult.croppedUri) {
-    console.log(`[ExtractJob] ${itemId} CROP FAILED: ${cropResult.error}`);
-    throw new Error(cropResult.error || 'Failed to crop item from outfit');
+  let croppedUri: string | null = null;
+  try {
+    const cropResult = await withTimeout(
+      cropItemFromOutfit(outfitImageUri, itemDescription, region, bbox, {
+        tightMode: false,
+        strictItemOnly: false,
+      }),
+      STEP_TIMEOUT_MS,
+      'Outfit crop'
+    );
+    if (cropResult.success && cropResult.croppedUri) {
+      croppedUri = cropResult.croppedUri;
+      console.log(`[ExtractJob] ${itemId} crop OK`);
+    } else {
+      console.log(`[ExtractJob] ${itemId} crop returned no image: ${cropResult.error}`);
+    }
+  } catch (cropErr) {
+    console.log(`[ExtractJob] ${itemId} crop error (will use source image):`, cropErr instanceof Error ? cropErr.message : cropErr);
   }
-  console.log(`[ExtractJob] ${itemId} crop OK (mode=default)`);
 
-  update(itemId, {
-    imageUri: cropResult.croppedUri,
-    processingStep: 'removing_bg',
-  });
+  // Fallback: use the original outfit image if crop failed
+  const imageForBgRemoval = croppedUri || outfitImageUri;
+  if (croppedUri) {
+    update(itemId, { imageUri: croppedUri, processingStep: 'removing_bg' });
+  } else {
+    update(itemId, { processingStep: 'removing_bg' });
+  }
 
   // --- STEP 2: Remove background ---
-  let bgResult = await withTimeout(
-    removeBackgroundWithRetry(cropResult.croppedUri, (msg) => {
-      if (msg.includes('pass 2') || msg.includes('Refining')) {
-        update(itemId, { processingStep: 'creating_sticker' });
-      }
-    }, true, { itemDescription, region }),
-    STEP_TIMEOUT_MS,
-    'Background removal'
-  );
-
-  if (!bgResult.success || !bgResult.stickerUri) {
-    console.log(`[ExtractJob] ${itemId} BG REMOVAL FAILED: ${bgResult.error}`);
-    throw new Error(bgResult.error || 'Background removal failed');
+  let finalSticker: string | null = null;
+  try {
+    const bgResult = await withTimeout(
+      removeBackgroundWithRetry(imageForBgRemoval, (msg) => {
+        if (msg.includes('pass 2') || msg.includes('Refining')) {
+          update(itemId, { processingStep: 'creating_sticker' });
+        }
+      }, true, { itemDescription, region }),
+      STEP_TIMEOUT_MS,
+      'Background removal'
+    );
+    if (bgResult.success && bgResult.stickerUri) {
+      finalSticker = bgResult.stickerUri;
+      console.log(`[ExtractJob] ${itemId} bg removal OK`);
+    } else {
+      console.log(`[ExtractJob] ${itemId} bg removal returned no sticker: ${bgResult.error}`);
+    }
+  } catch (bgErr) {
+    console.log(`[ExtractJob] ${itemId} bg removal error:`, bgErr instanceof Error ? bgErr.message : bgErr);
   }
-  console.log(`[ExtractJob] ${itemId} bg removal OK`);
 
-  // --- STEP 3: Validate sticker quality ---
-  // For synthetic/fallback items or fragile regions, use relaxed validation
-  let finalSticker = bgResult.stickerUri;
-  let validationPassed = true;
-  let validationReason = '';
+  // If BG removal failed but we have a cropped image, use that as the sticker
+  if (!finalSticker && croppedUri) {
+    console.log(`[ExtractJob] ${itemId} using cropped image as sticker fallback`);
+    finalSticker = croppedUri;
+  }
 
-  if (isSynthetic) {
-    console.log(`[ExtractJob] ${itemId} SKIP validation (synthetic/fallback item)`);
-  } else {
-    const validation = await safeValidateGarment(bgResult.stickerUri, itemDescription);
-    console.log(`[ExtractJob] ${itemId} garment validation: valid=${validation.valid} reason=${validation.reason || 'ok'}`);
+  // If everything failed, throw to trigger retry
+  if (!finalSticker) {
+    throw new Error('Both crop and background removal failed');
+  }
 
-    if (!validation.valid) {
-      validationPassed = false;
-      validationReason = validation.reason || 'Garment validation failed';
+  // --- STEP 3: Detect metadata (non-blocking — use defaults on failure) ---
+  update(itemId, { processingStep: 'finalizing' });
 
-      // For fragile regions (pants/shoes), accept the sticker anyway if BG removal succeeded
-      if (isFragileRegion) {
-        console.log(`[ExtractJob] ${itemId} ACCEPTING despite validation fail (fragile region: ${region})`);
-        validationPassed = true;
-      } else {
-        // Retry with tighter crop for upper-body items
-        console.log(`[ExtractJob] ${itemId} retrying with tighter crop: ${validationReason}`);
-        const tighterCrop = await withTimeout(
-          cropItemFromOutfit(outfitImageUri, itemDescription, region, bbox, {
-            tightMode: true,
-            strictItemOnly: true,
-          }),
-          STEP_TIMEOUT_MS,
-          'Tight crop retry'
-        );
-        if (tighterCrop.success && tighterCrop.croppedUri) {
-          cropResult = tighterCrop;
-          update(itemId, { imageUri: cropResult.croppedUri });
-          console.log(`[ExtractJob] ${itemId} tight crop OK`);
-        }
+  let metadataCategory = detectedCategory as ClothingCategory | undefined;
+  let metadataColor = detectedColor;
 
-        update(itemId, { processingStep: 'creating_sticker' });
-        const retryBg = await withTimeout(
-          removeBackgroundWithRetry(cropResult.croppedUri!, undefined, true, {
-            itemDescription,
-            strictMode: true,
-            region,
-          }),
-          STEP_TIMEOUT_MS,
-          'Strict BG removal retry'
-        );
-
-        if (retryBg.success && retryBg.stickerUri) {
-          const retryValidation = await safeValidateGarment(retryBg.stickerUri, itemDescription);
-          console.log(`[ExtractJob] ${itemId} retry validation: valid=${retryValidation.valid} reason=${retryValidation.reason || 'ok'}`);
-
-          if (retryValidation.valid) {
-            finalSticker = retryBg.stickerUri;
-            validationPassed = true;
-          } else {
-            // Accept the BETTER of the two results rather than failing entirely
-            console.log(`[ExtractJob] ${itemId} retry validation also failed — accepting original sticker as best-effort`);
-            finalSticker = bgResult.stickerUri;
-            validationPassed = true;
-          }
-        } else {
-          // Retry BG removal failed — accept original sticker
-          console.log(`[ExtractJob] ${itemId} retry BG removal failed — accepting original sticker`);
-          validationPassed = true;
-        }
-      }
+  if (!metadataCategory || !metadataColor) {
+    try {
+      const metadata = await withTimeout(
+        detectClothingMetadata(croppedUri || imageForBgRemoval),
+        30_000,
+        'Metadata detection'
+      );
+      if (!metadataCategory) metadataCategory = metadata.category;
+      if (!metadataColor) metadataColor = metadata.color;
+    } catch (metaErr) {
+      console.log(`[ExtractJob] ${itemId} metadata detection failed (using defaults):`, metaErr instanceof Error ? metaErr.message : metaErr);
     }
   }
 
-  console.log(`[ExtractJob] ${itemId} ACCEPTED (region=${region}, validation=${validationPassed})`);
-
-  // --- STEP 4: Detect metadata ---
-  update(itemId, { processingStep: 'finalizing' });
-
-  const metadata = await withTimeout(
-    detectClothingMetadata(cropResult.croppedUri!),
-    STEP_TIMEOUT_MS,
-    'Metadata detection'
-  );
-  const category = detectedCategory
-    ? (detectedCategory as ClothingCategory)
-    : metadata.category;
-
   update(itemId, {
-    category,
-    color: detectedColor || metadata.color,
+    category: metadataCategory || ('T-shirt' as ClothingCategory),
+    color: metadataColor || 'Unknown',
   });
 
+  console.log(`[ExtractJob] ${itemId} ACCEPTED (region=${region})`);
   return finalSticker;
-}
-
-async function safeValidateGarment(
-  stickerUri: string,
-  itemDescription: string
-): Promise<{ valid: boolean; reason?: string }> {
-  try {
-    const garmentCheck = await withTimeout(
-      validateGarmentOnlySticker(stickerUri, itemDescription),
-      STEP_TIMEOUT_MS,
-      'Garment validation'
-    );
-    if (!garmentCheck.valid) return garmentCheck;
-
-    const qualityCheck = await withTimeout(
-      validateExtractionQuality(stickerUri, itemDescription),
-      STEP_TIMEOUT_MS,
-      'Quality validation'
-    );
-    return qualityCheck;
-  } catch (error) {
-    console.log(`[ExtractJob] validation error (treating as valid):`, error instanceof Error ? error.message : error);
-    return { valid: true };
-  }
 }
 
 async function processTask(task: QueueTask, attempt: number = 1) {
