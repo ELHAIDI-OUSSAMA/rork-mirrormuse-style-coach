@@ -17,6 +17,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Plus, Shirt, X, Palette, RotateCcw, Sparkles, UserRound, Tag, HandHeart, Archive } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { space, radius, palette, type as typo, motion, CHIP_HEIGHT } from '@/constants/theme';
 import { AppHeader } from '@/components/AppHeader';
@@ -24,6 +25,7 @@ import { IconButton } from '@/components/IconButton';
 import { useApp } from '@/contexts/AppContext';
 import { ClosetItem, ClothingCategory, ProcessingStep } from '@/types';
 import { retryProcessing } from '@/lib/processingQueue';
+import { addImageToClosetPipeline } from '@/lib/closetPipeline';
 
 const { width } = Dimensions.get('window');
 const GAP = 14;
@@ -245,7 +247,7 @@ function ClosetTile({
 
 export default function ClosetScreen() {
   const router = useRouter();
-  const { closetItems, cleanupCandidates, closetValueInsights, updateClosetItem, avatarProfile, getSellOpportunityForItem } = useApp();
+  const { closetItems, cleanupCandidates, closetValueInsights, updateClosetItem, addClosetItem, removeClosetItem, avatarProfile, getSellOpportunityForItem } = useApp();
 
   const [selectedFilter, setSelectedFilter] = useState('All');
   const [selectedLifecycle, setSelectedLifecycle] = useState<'Active' | 'Listed' | 'Donated' | 'Sold'>('Active');
@@ -256,6 +258,60 @@ export default function ClosetScreen() {
   const autoRetriedRef = useRef<Set<string>>(new Set());
   const actionSheetTranslateY = useRef(new Animated.Value(320)).current;
   const actionSheetBackdropOpacity = useRef(new Animated.Value(0)).current;
+
+  const handleUploadFromGallery = useCallback(async () => {
+    setShowAddSheet(false);
+    const pickerResult = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.9,
+    });
+    if (pickerResult.canceled || !pickerResult.assets[0]) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const imageUri = pickerResult.assets[0].uri;
+    const stagingId = `closet_scan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const stagingItem: ClosetItem = {
+      id: stagingId,
+      imageUri,
+      category: 'T-shirt',
+      color: 'Unknown',
+      styleTags: [],
+      createdAt: new Date().toISOString(),
+      source: 'manual',
+      position: {
+        x: Math.random() * 220 + 16,
+        y: Math.random() * 300,
+        rotation: (Math.random() - 0.5) * 16,
+        scale: 0.85 + Math.random() * 0.25,
+      },
+      usageCount: 0,
+      outlineEnabled: true,
+      isProcessing: true,
+      processingStatus: 'queued',
+      processingStep: 'adding',
+    };
+    addClosetItem(stagingItem);
+    void (async () => {
+      try {
+        const pipelineResult = await addImageToClosetPipeline({
+          source: 'closet_upload',
+          imageUri,
+          addClosetItem,
+          onProgress: ({ message }) => {
+            console.log('[Closet] pipeline progress:', message);
+          },
+        });
+        removeClosetItem(stagingId);
+        if (pipelineResult.addedCount === 0) {
+          console.log('[Closet] No items added from gallery upload');
+        } else {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+      } catch (error) {
+        console.log('[Closet] gallery pipeline failed:', error);
+        removeClosetItem(stagingId);
+      }
+    })();
+  }, [addClosetItem, removeClosetItem]);
 
   const lifecycleFilteredItems = useMemo(() => {
     if (selectedLifecycle === 'Listed') return closetItems.filter((item) => item.status === 'listed_for_sale');
@@ -633,7 +689,7 @@ export default function ClosetScreen() {
             <TouchableOpacity style={styles.sheetOption} onPress={() => { setShowAddSheet(false); router.push('/add-clothing' as never); }}>
               <Text style={styles.sheetOptionText}>Take photo</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.sheetOption} onPress={() => { setShowAddSheet(false); router.push('/add-clothing' as never); }}>
+            <TouchableOpacity style={styles.sheetOption} onPress={handleUploadFromGallery}>
               <Text style={styles.sheetOptionText}>Upload from gallery</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.sheetOption} onPress={() => { setShowAddSheet(false); router.push('/add-by-search' as never); }}>
