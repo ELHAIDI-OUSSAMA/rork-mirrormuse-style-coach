@@ -159,9 +159,11 @@ function ClosetTile({
   statusBadge?: string;
 }) {
   const [primaryFailed, setPrimaryFailed] = useState(false);
-  const displayUri = primaryFailed ? fallbackSource : imageSource;
+  const hasPrimary = !!imageSource;
+  const shouldUseFallback = !hasPrimary || primaryFailed;
+  const displayUri = shouldUseFallback ? fallbackSource : imageSource;
   const hasImage = !!displayUri;
-  const isSticker = !primaryFailed && !!imageSource;
+  const isSticker = !shouldUseFallback && hasPrimary;
 
   return (
     <View style={styles.gridCell}>
