@@ -313,73 +313,73 @@ export default function SavedScreen() {
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: palette.warmWhite },
+  container: { flex: 1, backgroundColor: palette.systemGroupedBg },
   safeArea: { flex: 1 },
 
   filtersScroll: { flexGrow: 0, flexShrink: 0 },
   filtersRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: PADDING, paddingBottom: space.sm, gap: space.sm },
   filterChip: {
     height: CHIP_HEIGHT, paddingHorizontal: space.lg, borderRadius: radius.pill,
-    backgroundColor: palette.warmWhiteDark, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(118, 118, 128, 0.12)', alignItems: 'center', justifyContent: 'center',
   },
   filterChipActive: { backgroundColor: palette.accent },
   filterChipText: { ...typo.chip, color: palette.inkLight },
-  filterChipTextActive: { ...typo.chip, color: palette.white },
+  filterChipTextActive: { ...typo.chip, color: '#FFFFFF' },
 
 
   gridContent: { paddingHorizontal: PADDING, paddingBottom: 100 },
   gridContentEmpty: { flexGrow: 1 },
-  columnWrapper: { justifyContent: 'space-between', marginBottom: GAP },
+  columnWrapper: { justifyContent: 'space-between' as const, marginBottom: GAP },
   gridCell: { width: ITEM_WIDTH },
 
   card: {
-    width: '100%', aspectRatio: 0.75, backgroundColor: palette.white,
-    borderRadius: radius.card, overflow: 'hidden', ...shadow.card,
+    width: '100%', aspectRatio: 0.75, backgroundColor: palette.secondarySystemGroupedBg,
+    borderRadius: radius.card, overflow: 'hidden',
   },
   cardImage: { width: '100%', height: '100%' },
 
   scoreBadge: {
-    position: 'absolute', top: space.sm, left: space.sm,
-    backgroundColor: palette.white, paddingHorizontal: space.sm, paddingVertical: space.xs, borderRadius: radius.pill,
+    position: 'absolute' as const, top: space.sm, left: space.sm,
+    backgroundColor: 'rgba(255,255,255,0.92)', paddingHorizontal: space.sm, paddingVertical: space.xs, borderRadius: radius.pill,
   },
-  scoreBadgeText: { ...typo.caption, fontWeight: '700', color: palette.ink },
+  scoreBadgeText: { ...typo.caption, fontWeight: '700' as const, color: palette.ink },
 
   vibePill: {
-    position: 'absolute', bottom: space.sm, left: space.sm,
-    backgroundColor: 'rgba(44, 40, 37, 0.6)', paddingHorizontal: space.md, paddingVertical: space.xs, borderRadius: radius.pill,
+    position: 'absolute' as const, bottom: space.sm, left: space.sm,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)', paddingHorizontal: space.md, paddingVertical: space.xs, borderRadius: radius.pill,
   },
-  vibePillText: { ...typo.small, fontWeight: '600', color: palette.white },
+  vibePillText: { ...typo.small, fontWeight: '600' as const, color: '#FFFFFF' },
 
   inspoSourceBadge: {
-    position: 'absolute', top: space.sm, right: space.sm,
-    backgroundColor: 'rgba(255,255,255,0.85)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill,
+    position: 'absolute' as const, top: space.sm, right: space.sm,
+    backgroundColor: 'rgba(255,255,255,0.88)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill,
   },
   inspoSourceText: { ...typo.small, color: palette.inkMuted, fontSize: 10 },
 
-  outfitPreview: { width: '100%', height: '100%', backgroundColor: palette.warmWhiteDark, position: 'relative' },
-  outfitThumb: { position: 'absolute', width: '40%', height: '40%' },
+  outfitPreview: { width: '100%', height: '100%', backgroundColor: palette.warmWhiteDark, position: 'relative' as const },
+  outfitThumb: { position: 'absolute' as const, width: '40%', height: '40%' },
   outfitThumbImg: { width: '100%', height: '100%' },
   countPill: {
-    position: 'absolute', top: space.sm, right: space.sm,
-    backgroundColor: palette.white, paddingHorizontal: space.sm, paddingVertical: space.xs, borderRadius: radius.pill,
+    position: 'absolute' as const, top: space.sm, right: space.sm,
+    backgroundColor: 'rgba(255,255,255,0.92)', paddingHorizontal: space.sm, paddingVertical: space.xs, borderRadius: radius.pill,
   },
-  countPillText: { ...typo.small, fontWeight: '600', color: palette.ink },
+  countPillText: { ...typo.small, fontWeight: '600' as const, color: palette.ink },
 
   emptyState: {
-    flex: 1, alignItems: 'center', justifyContent: 'center',
+    flex: 1, alignItems: 'center' as const, justifyContent: 'center' as const,
     paddingHorizontal: space.xxl, paddingTop: 80,
   },
   emptyIcon: {
     width: 88, height: 88, borderRadius: 44,
-    backgroundColor: palette.warmWhiteDark, alignItems: 'center', justifyContent: 'center', marginBottom: space.lg,
+    backgroundColor: palette.warmWhiteDark, alignItems: 'center' as const, justifyContent: 'center' as const, marginBottom: space.lg,
   },
-  emptyTitle: { ...typo.sectionHeader, color: palette.ink, marginBottom: space.sm, textAlign: 'center' },
-  emptySubtitle: { ...typo.body, fontSize: 14, color: palette.inkMuted, textAlign: 'center', lineHeight: 22 },
+  emptyTitle: { ...typo.sectionHeader, color: palette.ink, marginBottom: space.sm, textAlign: 'center' as const },
+  emptySubtitle: { ...typo.body, fontSize: 15, color: palette.inkMuted, textAlign: 'center' as const, lineHeight: 22 },
   subsectionLabel: {
-    ...typo.caption,
+    ...typo.footnote,
     color: palette.inkMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.5,
     marginBottom: space.sm,
   },
 });

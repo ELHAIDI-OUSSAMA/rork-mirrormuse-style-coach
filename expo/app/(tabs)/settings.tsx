@@ -21,11 +21,10 @@ import {
   HandHeart,
 } from 'lucide-react-native';
 import { useApp } from '@/contexts/AppContext';
-import { Card } from '@/components/Card';
 import { Chip } from '@/components/Chip';
 import { AppHeader } from '@/components/AppHeader';
 import { MODESTY_LEVELS, BUDGET_LEVELS, TONE_PREFERENCES } from '@/types';
-import { space, radius, shadow, palette, type as typo } from '@/constants/theme';
+import { space, radius, palette, type as typo } from '@/constants/theme';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -92,51 +91,57 @@ export default function SettingsScreen() {
   };
 
   const SettingRow = ({
-    icon, title, subtitle, onPress, danger = false, showArrow = true, rightElement,
+    icon, iconBg, title, subtitle, onPress, danger = false, showArrow = true, rightElement,
   }: {
-    icon: React.ReactNode; title: string; subtitle?: string;
+    icon: React.ReactNode; iconBg?: string; title: string; subtitle?: string;
     onPress?: () => void; danger?: boolean; showArrow?: boolean; rightElement?: React.ReactNode;
   }) => (
     <TouchableOpacity
       style={s.row}
       onPress={onPress}
-      activeOpacity={onPress ? 0.7 : 1}
+      activeOpacity={onPress ? 0.6 : 1}
       disabled={!onPress && !rightElement}
     >
-      <View style={[s.rowIcon, danger && { backgroundColor: palette.errorLight }]}>
+      <View style={[s.rowIcon, { backgroundColor: danger ? palette.error : (iconBg || palette.inkMuted) }]}>
         {icon}
       </View>
-      <View style={s.rowText}>
-        <Text style={[typo.bodyMedium, { color: danger ? palette.error : palette.ink }]}>{title}</Text>
-        {subtitle && <Text style={[typo.small, { color: palette.inkMuted, marginTop: 1 }]}>{subtitle}</Text>}
+      <View style={s.rowContent}>
+        <View style={s.rowText}>
+          <Text style={[typo.body, { color: danger ? palette.error : palette.ink, fontSize: 16 }]}>{title}</Text>
+          {subtitle && <Text style={[typo.caption, { color: palette.inkMuted, marginTop: 1 }]}>{subtitle}</Text>}
+        </View>
+        {rightElement}
+        {showArrow && onPress && !rightElement && (
+          <ChevronRight size={17} color={palette.inkFaint} />
+        )}
       </View>
-      {rightElement}
-      {showArrow && onPress && !rightElement && (
-        <ChevronRight size={18} color={palette.inkFaint} />
-      )}
     </TouchableOpacity>
   );
 
   const ToggleRow = ({
-    icon, title, subtitle, value, onValueChange,
+    icon, iconBg, title, subtitle, value, onValueChange,
   }: {
-    icon: React.ReactNode; title: string; subtitle?: string;
+    icon: React.ReactNode; iconBg?: string; title: string; subtitle?: string;
     value: boolean; onValueChange: (v: boolean) => void;
   }) => (
     <View style={s.row}>
-      <View style={s.rowIcon}>{icon}</View>
-      <View style={s.rowText}>
-        <Text style={[typo.bodyMedium, { color: palette.ink }]}>{title}</Text>
-        {subtitle && <Text style={[typo.small, { color: palette.inkMuted, marginTop: 1 }]}>{subtitle}</Text>}
+      <View style={[s.rowIcon, { backgroundColor: iconBg || palette.inkMuted }]}>{icon}</View>
+      <View style={s.rowContent}>
+        <View style={s.rowText}>
+          <Text style={[typo.body, { color: palette.ink, fontSize: 16 }]}>{title}</Text>
+          {subtitle && <Text style={[typo.caption, { color: palette.inkMuted, marginTop: 1 }]}>{subtitle}</Text>}
+        </View>
+        <Switch
+          value={value}
+          onValueChange={onValueChange}
+          trackColor={{ false: palette.borderLight, true: themeColors.primary }}
+          thumbColor="#FFF"
+        />
       </View>
-      <Switch
-        value={value}
-        onValueChange={onValueChange}
-        trackColor={{ false: palette.border, true: themeColors.primary }}
-        thumbColor="#FFF"
-      />
     </View>
   );
+
+  const Separator = () => <View style={s.separator} />;
 
   return (
     <View style={s.container}>
@@ -148,28 +153,28 @@ export default function SettingsScreen() {
           contentContainerStyle={s.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* Pro card */}
-          <Card style={s.proCard} variant="flat">
+          <View style={s.proCard}>
             <View style={s.proHeader}>
               <View style={s.proBadge}>
-                <Crown size={20} color={palette.secondary} />
+                <Crown size={18} color="#FF9500" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[typo.sectionHeader, { color: palette.ink }]}>MirrorMuse Pro</Text>
+                <Text style={[typo.headline, { color: palette.ink }]}>MirrorMuse Pro</Text>
                 <Text style={[typo.caption, { color: palette.inkMuted, marginTop: 2 }]}>
                   Unlimited scans, weather mode & more
                 </Text>
               </View>
+              <View style={s.proBtn}>
+                <Text style={s.proBtnText}>Coming Soon</Text>
+              </View>
             </View>
-            <TouchableOpacity style={s.proBtn}>
-              <Text style={[typo.button, { color: '#FFF', fontSize: 14 }]}>Coming Soon</Text>
-            </TouchableOpacity>
-          </Card>
+          </View>
 
-          <Text style={s.sectionLabel}>Digital Twin</Text>
-          <Card padding="none" style={s.section}>
+          <Text style={s.sectionLabel}>DIGITAL TWIN</Text>
+          <View style={s.section}>
             <SettingRow
-              icon={<User size={18} color={palette.inkMuted} strokeWidth={1.8} />}
+              icon={<User size={16} color="#FFF" />}
+              iconBg="#5856D6"
               title={
                 avatarProfile?.status === 'creating'
                   ? 'Building your Twin'
@@ -179,10 +184,10 @@ export default function SettingsScreen() {
               }
               subtitle={
                 avatarProfile?.status === 'creating'
-                  ? 'We are generating your avatar in the background'
+                  ? 'Generating your avatar in the background'
                   : avatarProfile?.status === 'ready'
                   ? `${virtualTryOnRenders.length} try-on render${virtualTryOnRenders.length === 1 ? '' : 's'}`
-                  : 'Upload face and body photos for virtual try-on'
+                  : 'Upload photos for virtual try-on'
               }
               onPress={() =>
                 router.push(
@@ -192,9 +197,9 @@ export default function SettingsScreen() {
             />
             {avatarProfile ? (
               <>
-                <View style={s.divider} />
+                <Separator />
                 <SettingRow
-                  icon={<Trash2 size={18} color={palette.error} strokeWidth={1.8} />}
+                  icon={<Trash2 size={16} color="#FFF" />}
                   title="Delete Digital Twin"
                   subtitle="Remove avatar photos and renders"
                   danger
@@ -211,31 +216,33 @@ export default function SettingsScreen() {
                 />
               </>
             ) : null}
-          </Card>
+          </View>
 
-          {/* Account */}
-          <Text style={s.sectionLabel}>Account</Text>
-          <Card padding="none" style={s.section}>
+          <Text style={s.sectionLabel}>ACCOUNT</Text>
+          <View style={s.section}>
             <SettingRow
-              icon={<User size={18} color={palette.inkMuted} strokeWidth={1.8} />}
+              icon={<User size={16} color="#FFF" />}
+              iconBg="#8E8E93"
               title={isGuest ? 'Guest Account' : 'My Account'}
               subtitle={isGuest ? 'Sign in to sync your data' : 'Manage your account'}
             />
-            <View style={s.divider} />
-            <TouchableOpacity style={s.row} onPress={() => setShowGender(!showGender)} activeOpacity={0.7}>
-              <View style={s.rowIcon}>
-                <UserCircle size={18} color={palette.inkMuted} strokeWidth={1.8} />
+            <Separator />
+            <TouchableOpacity style={s.row} onPress={() => setShowGender(!showGender)} activeOpacity={0.6}>
+              <View style={[s.rowIcon, { backgroundColor: '#AF52DE' }]}>
+                <UserCircle size={16} color="#FFF" />
               </View>
-              <View style={s.rowText}>
-                <Text style={[typo.bodyMedium, { color: palette.ink }]}>Gender</Text>
-                <Text style={[typo.small, { color: palette.inkMuted }]}>
-                  {preferences.gender === 'male' ? 'Man' : preferences.gender === 'female' ? 'Woman' : 'Not set'}
-                </Text>
+              <View style={s.rowContent}>
+                <View style={s.rowText}>
+                  <Text style={[typo.body, { color: palette.ink, fontSize: 16 }]}>Gender</Text>
+                  <Text style={[typo.caption, { color: palette.inkMuted }]}>
+                    {preferences.gender === 'male' ? 'Man' : preferences.gender === 'female' ? 'Woman' : 'Not set'}
+                  </Text>
+                </View>
+                <ChevronRight
+                  size={17} color={palette.inkFaint}
+                  style={{ transform: [{ rotate: showGender ? '90deg' : '0deg' }] }}
+                />
               </View>
-              <ChevronRight
-                size={18} color={palette.inkFaint}
-                style={{ transform: [{ rotate: showGender ? '90deg' : '0deg' }] }}
-              />
             </TouchableOpacity>
             {showGender && (
               <View style={s.expanded}>
@@ -245,64 +252,69 @@ export default function SettingsScreen() {
                 </View>
               </View>
             )}
-          </Card>
+          </View>
 
-          {/* Creator Mode */}
-          <Text style={s.sectionLabel}>Creator Mode</Text>
-          <Card padding="none" style={s.section}>
+          <Text style={s.sectionLabel}>CREATOR MODE</Text>
+          <View style={s.section}>
             <ToggleRow
-              icon={<Sparkles size={18} color={palette.secondary} strokeWidth={1.8} />}
+              icon={<Sparkles size={16} color="#FFF" />}
+              iconBg="#FF9500"
               title="Creator Mode"
               subtitle="Generate shareable outfit cards"
               value={creatorSettings.enabled}
               onValueChange={toggleCreatorMode}
             />
-          </Card>
+          </View>
 
-          {/* Notifications */}
-          <Text style={s.sectionLabel}>Notifications</Text>
-          <Card padding="none" style={s.section}>
-            <TouchableOpacity style={s.row} onPress={() => setShowNotifications(!showNotifications)} activeOpacity={0.7}>
-              <View style={s.rowIcon}>
-                <Bell size={18} color={palette.inkMuted} strokeWidth={1.8} />
+          <Text style={s.sectionLabel}>NOTIFICATIONS</Text>
+          <View style={s.section}>
+            <TouchableOpacity style={s.row} onPress={() => setShowNotifications(!showNotifications)} activeOpacity={0.6}>
+              <View style={[s.rowIcon, { backgroundColor: '#FF3B30' }]}>
+                <Bell size={16} color="#FFF" />
               </View>
-              <View style={s.rowText}>
-                <Text style={[typo.bodyMedium, { color: palette.ink }]}>Smart Notifications</Text>
-                <Text style={[typo.small, { color: palette.inkMuted }]}>Daily suggestions, weather alerts</Text>
+              <View style={s.rowContent}>
+                <View style={s.rowText}>
+                  <Text style={[typo.body, { color: palette.ink, fontSize: 16 }]}>Smart Notifications</Text>
+                  <Text style={[typo.caption, { color: palette.inkMuted }]}>Daily suggestions, weather alerts</Text>
+                </View>
+                <ChevronRight
+                  size={17} color={palette.inkFaint}
+                  style={{ transform: [{ rotate: showNotifications ? '90deg' : '0deg' }] }}
+                />
               </View>
-              <ChevronRight
-                size={18} color={palette.inkFaint}
-                style={{ transform: [{ rotate: showNotifications ? '90deg' : '0deg' }] }}
-              />
             </TouchableOpacity>
             {showNotifications && (
               <View style={s.expanded}>
                 <ToggleRow
-                  icon={<Calendar size={16} color={themeColors.primary} />}
+                  icon={<Calendar size={14} color="#FFF" />}
+                  iconBg="#007AFF"
                   title="Daily Outfit Suggestion"
                   subtitle="Morning outfit ideas"
                   value={notificationSettings.dailySuggestionEnabled}
                   onValueChange={(v) => updateNotificationSetting('dailySuggestionEnabled', v)}
                 />
-                <View style={s.dividerSmall} />
+                <View style={s.separatorInset} />
                 <ToggleRow
-                  icon={<CloudSun size={16} color={palette.info} />}
+                  icon={<CloudSun size={14} color="#FFF" />}
+                  iconBg="#5AC8FA"
                   title="Weather Alerts"
                   subtitle="Dress for weather changes"
                   value={notificationSettings.weatherAlertsEnabled}
                   onValueChange={(v) => updateNotificationSetting('weatherAlertsEnabled', v)}
                 />
-                <View style={s.dividerSmall} />
+                <View style={s.separatorInset} />
                 <ToggleRow
-                  icon={<Shirt size={16} color={palette.secondary} />}
+                  icon={<Shirt size={14} color="#FFF" />}
+                  iconBg="#FF9500"
                   title="Closet Reminders"
                   subtitle="Unused item suggestions"
                   value={notificationSettings.closetAlertsEnabled}
                   onValueChange={(v) => updateNotificationSetting('closetAlertsEnabled', v)}
                 />
-                <View style={s.dividerSmall} />
+                <View style={s.separatorInset} />
                 <ToggleRow
-                  icon={<Heart size={16} color={palette.error} />}
+                  icon={<Heart size={14} color="#FFF" />}
+                  iconBg="#FF2D55"
                   title="Inspiration Alerts"
                   subtitle="Recreate saved looks"
                   value={notificationSettings.inspirationAlertsEnabled}
@@ -310,30 +322,31 @@ export default function SettingsScreen() {
                 />
               </View>
             )}
-          </Card>
+          </View>
 
-          {/* Style Preferences */}
-          <Text style={s.sectionLabel}>Style Preferences</Text>
-          <Card padding="none" style={s.section}>
-            <TouchableOpacity style={s.row} onPress={() => setShowPrefs(!showPrefs)} activeOpacity={0.7}>
-              <View style={s.rowIcon}>
-                <Palette size={18} color={palette.inkMuted} strokeWidth={1.8} />
+          <Text style={s.sectionLabel}>STYLE PREFERENCES</Text>
+          <View style={s.section}>
+            <TouchableOpacity style={s.row} onPress={() => setShowPrefs(!showPrefs)} activeOpacity={0.6}>
+              <View style={[s.rowIcon, { backgroundColor: '#AF52DE' }]}>
+                <Palette size={16} color="#FFF" />
               </View>
-              <View style={s.rowText}>
-                <Text style={[typo.bodyMedium, { color: palette.ink }]}>Preferences</Text>
-                <Text style={[typo.small, { color: palette.inkMuted }]}>
-                  {preferences.modestyLevel} · {preferences.budgetLevel} · {preferences.tone}
-                </Text>
+              <View style={s.rowContent}>
+                <View style={s.rowText}>
+                  <Text style={[typo.body, { color: palette.ink, fontSize: 16 }]}>Preferences</Text>
+                  <Text style={[typo.caption, { color: palette.inkMuted }]}>
+                    {preferences.modestyLevel} · {preferences.budgetLevel} · {preferences.tone}
+                  </Text>
+                </View>
+                <ChevronRight
+                  size={17} color={palette.inkFaint}
+                  style={{ transform: [{ rotate: showPrefs ? '90deg' : '0deg' }] }}
+                />
               </View>
-              <ChevronRight
-                size={18} color={palette.inkFaint}
-                style={{ transform: [{ rotate: showPrefs ? '90deg' : '0deg' }] }}
-              />
             </TouchableOpacity>
             {showPrefs && (
               <View style={s.expanded}>
                 <View style={s.prefGroup}>
-                  <Text style={[typo.caption, { color: palette.inkMuted }]}>Modesty Level</Text>
+                  <Text style={[typo.caption, { color: palette.inkMuted, marginBottom: 8 }]}>Modesty Level</Text>
                   <View style={s.chipRow}>
                     {MODESTY_LEVELS.map((l) => (
                       <Chip key={l} label={l} selected={preferences.modestyLevel === l} onPress={() => setModestyLevel(l)} size="small" />
@@ -341,7 +354,7 @@ export default function SettingsScreen() {
                   </View>
                 </View>
                 <View style={s.prefGroup}>
-                  <Text style={[typo.caption, { color: palette.inkMuted }]}>Budget Range</Text>
+                  <Text style={[typo.caption, { color: palette.inkMuted, marginBottom: 8 }]}>Budget Range</Text>
                   <View style={s.chipRow}>
                     {BUDGET_LEVELS.map((l) => (
                       <Chip key={l} label={l} selected={preferences.budgetLevel === l} onPress={() => setBudgetLevel(l)} size="small" />
@@ -349,7 +362,7 @@ export default function SettingsScreen() {
                   </View>
                 </View>
                 <View style={s.prefGroup}>
-                  <Text style={[typo.caption, { color: palette.inkMuted }]}>Feedback Tone</Text>
+                  <Text style={[typo.caption, { color: palette.inkMuted, marginBottom: 8 }]}>Feedback Tone</Text>
                   <View style={s.chipRow}>
                     {TONE_PREFERENCES.map((t) => (
                       <Chip key={t} label={t} selected={preferences.tone === t} onPress={() => setTone(t)} size="small" />
@@ -358,40 +371,42 @@ export default function SettingsScreen() {
                 </View>
               </View>
             )}
-          </Card>
+          </View>
 
-          {/* Closet & Outfits */}
-          <Text style={s.sectionLabel}>Closet & Outfits</Text>
-          <Card padding="none" style={s.section}>
+          <Text style={s.sectionLabel}>CLOSET & OUTFITS</Text>
+          <View style={s.section}>
             <SettingRow
-              icon={<Shirt size={18} color={palette.inkMuted} strokeWidth={1.8} />}
+              icon={<Shirt size={16} color="#FFF" />}
+              iconBg="#34C759"
               title="Closet Items"
               subtitle={`${closetItems.length} ${closetItems.length === 1 ? 'piece' : 'pieces'}`}
               showArrow={false}
             />
-            <View style={s.divider} />
+            <Separator />
             <SettingRow
-              icon={<Calendar size={18} color={palette.inkMuted} strokeWidth={1.8} />}
+              icon={<Calendar size={16} color="#FFF" />}
+              iconBg="#007AFF"
               title="Planned Outfits"
               subtitle={`${plannedOutfits.length} ${plannedOutfits.length === 1 ? 'outfit' : 'outfits'}`}
               showArrow={false}
             />
-            <View style={s.divider} />
+            <Separator />
             <SettingRow
-              icon={<HandHeart size={18} color={palette.accent} strokeWidth={1.8} />}
+              icon={<HandHeart size={16} color="#FFF" />}
+              iconBg="#5AC8FA"
               title="Closet Cleanup"
               subtitle={
                 cleanupCandidates.length > 0
-                  ? `${cleanupCandidates.length} item${cleanupCandidates.length === 1 ? '' : 's'} ready to review`
-                  : 'Review unused items for keep, sell, or donate'
+                  ? `${cleanupCandidates.length} item${cleanupCandidates.length === 1 ? '' : 's'} to review`
+                  : 'Review unused items'
               }
               onPress={() => router.push('/closet-cleanup' as any)}
             />
             {closetItems.length > 0 && (
               <>
-                <View style={s.divider} />
+                <Separator />
                 <SettingRow
-                  icon={<Trash2 size={18} color={palette.error} strokeWidth={1.8} />}
+                  icon={<Trash2 size={16} color="#FFF" />}
                   title="Clear Closet"
                   subtitle="Remove all closet items"
                   onPress={handleClearCloset}
@@ -399,37 +414,37 @@ export default function SettingsScreen() {
                 />
               </>
             )}
-          </Card>
+          </View>
 
-          {/* Privacy */}
-          <Text style={s.sectionLabel}>Privacy & Data</Text>
-          <Card padding="none" style={s.section}>
+          <Text style={s.sectionLabel}>PRIVACY & DATA</Text>
+          <View style={s.section}>
             <SettingRow
-              icon={<Shield size={18} color={palette.inkMuted} strokeWidth={1.8} />}
+              icon={<Shield size={16} color="#FFF" />}
+              iconBg="#8E8E93"
               title="Privacy Policy"
             />
-            <View style={s.divider} />
+            <Separator />
             <SettingRow
-              icon={<FileText size={18} color={palette.inkMuted} strokeWidth={1.8} />}
+              icon={<FileText size={16} color="#FFF" />}
+              iconBg="#8E8E93"
               title="Saved Looks"
               subtitle={`${savedLooks.length} ${savedLooks.length === 1 ? 'look' : 'looks'} saved locally`}
               showArrow={false}
             />
-            <View style={s.divider} />
+            <Separator />
             <SettingRow
-              icon={<Trash2 size={18} color={palette.error} strokeWidth={1.8} />}
+              icon={<Trash2 size={16} color="#FFF" />}
               title="Delete All Data"
               subtitle="This cannot be undone"
               onPress={handleDeleteData}
               danger
             />
-          </Card>
+          </View>
 
-          {/* Support */}
-          <Text style={s.sectionLabel}>Support</Text>
-          <Card padding="none" style={s.section}>
-            <SettingRow icon={<HelpCircle size={18} color={palette.inkMuted} strokeWidth={1.8} />} title="Help & FAQ" />
-          </Card>
+          <Text style={s.sectionLabel}>SUPPORT</Text>
+          <View style={[s.section, { marginBottom: 32 }]}>
+            <SettingRow icon={<HelpCircle size={16} color="#FFF" />} iconBg="#007AFF" title="Help & FAQ" />
+          </View>
 
           <Text style={s.version}>MirrorMuse v2.0.0</Text>
         </ScrollView>
@@ -439,64 +454,82 @@ export default function SettingsScreen() {
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: palette.warmWhite },
+  container: { flex: 1, backgroundColor: palette.systemGroupedBg },
   safe: { flex: 1 },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: space.screen, paddingBottom: 40 },
+  scrollContent: { paddingBottom: 40 },
 
-  /* Pro card */
-  proCard: { marginBottom: space.xl, backgroundColor: palette.secondaryLight },
-  proHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
+  proCard: {
+    marginHorizontal: space.screen,
+    marginTop: 8,
+    backgroundColor: palette.secondarySystemGroupedBg,
+    borderRadius: radius.card,
+    padding: 16,
+  },
+  proHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   proBadge: {
-    width: 44, height: 44, borderRadius: 14,
-    backgroundColor: palette.pastelPeach,
+    width: 36, height: 36, borderRadius: 10,
+    backgroundColor: '#FFF4E6',
     alignItems: 'center', justifyContent: 'center',
   },
   proBtn: {
-    backgroundColor: palette.secondary,
-    paddingVertical: 10, paddingHorizontal: 20,
-    borderRadius: radius.button, alignSelf: 'flex-start',
-    ...shadow.soft,
+    backgroundColor: '#FF9500',
+    paddingVertical: 7, paddingHorizontal: 14,
+    borderRadius: radius.button,
   },
+  proBtnText: { ...typo.caption, fontWeight: '600' as const, color: '#FFF' },
 
-  /* Section labels */
   sectionLabel: {
-    ...typo.caption,
+    ...typo.footnote,
     color: palette.inkMuted,
-    textTransform: 'uppercase' as const,
-    letterSpacing: 0.6,
-    marginBottom: space.sm,
-    marginTop: space.md,
+    marginLeft: space.screen + 16,
+    marginBottom: 6,
+    marginTop: 24,
+    letterSpacing: 0.5,
   },
-  section: { marginBottom: space.md },
+  section: {
+    marginHorizontal: space.screen,
+    backgroundColor: palette.secondarySystemGroupedBg,
+    borderRadius: radius.card,
+    overflow: 'hidden',
+  },
 
-  /* Setting rows */
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: space.lg,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
   },
   rowIcon: {
-    width: 38, height: 38, borderRadius: 12,
-    backgroundColor: palette.warmWhiteDark,
+    width: 30, height: 30, borderRadius: 7,
     alignItems: 'center', justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 14,
+  },
+  rowContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   rowText: { flex: 1 },
-  divider: { height: StyleSheet.hairlineWidth, backgroundColor: palette.borderLight, marginLeft: 70 },
-  dividerSmall: { height: StyleSheet.hairlineWidth, backgroundColor: palette.borderLight, marginLeft: 54 },
-
-  /* Expanded sections */
-  expanded: {
-    paddingHorizontal: space.lg,
-    paddingBottom: space.md,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: palette.borderLight,
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: palette.separator,
+    marginLeft: 60,
   },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: space.sm },
-  prefGroup: { marginTop: space.md },
+  separatorInset: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: palette.separator,
+    marginLeft: 60,
+  },
 
-  /* Version */
-  version: { ...typo.small, color: palette.inkFaint, textAlign: 'center', marginTop: space.xl },
+  expanded: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: palette.separator,
+  },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
+  prefGroup: { marginTop: 12 },
+
+  version: { ...typo.caption, color: palette.inkFaint, textAlign: 'center', marginTop: 16, marginBottom: 20 },
 });

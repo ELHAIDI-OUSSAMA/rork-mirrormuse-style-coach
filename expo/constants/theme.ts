@@ -1,152 +1,157 @@
-/**
- * MirrorMuse Design System — Tiimo-inspired tokens
- *
- * Calm · Warm · Playful-minimal · Visual-first
- */
-
-/* ── Spacing scale ── */
 export const space = {
   xs: 4,
   sm: 8,
-  md: 14,
+  md: 16,
   lg: 20,
-  xl: 28,
-  xxl: 40,
-  screen: 18, // horizontal page padding
+  xl: 32,
+  xxl: 44,
+  screen: 20,
 } as const;
 
-/* ── Radius ── */
 export const radius = {
-  sm: 10,
-  md: 16,
-  lg: 22,
-  xl: 28,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 22,
   pill: 999,
-  card: 22,
-  button: 16,
+  card: 16,
+  button: 14,
   chip: 999,
 } as const;
 
-/* ── Typography ── */
 export const type = {
   screenTitle: {
     fontSize: 34,
     fontWeight: '700' as const,
-    lineHeight: 40,
-    letterSpacing: -0.4,
+    lineHeight: 41,
+    letterSpacing: 0.37,
   },
   sectionHeader: {
-    fontSize: 19,
+    fontSize: 20,
     fontWeight: '600' as const,
-    lineHeight: 26,
+    lineHeight: 25,
+    letterSpacing: 0.38,
   },
   body: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '400' as const,
-    lineHeight: 24,
+    lineHeight: 22,
+    letterSpacing: -0.41,
   },
   bodyMedium: {
-    fontSize: 15,
+    fontSize: 17,
     fontWeight: '500' as const,
     lineHeight: 22,
+    letterSpacing: -0.41,
   },
   caption: {
     fontSize: 13,
-    fontWeight: '500' as const,
+    fontWeight: '400' as const,
     lineHeight: 18,
+    letterSpacing: -0.08,
   },
   small: {
     fontSize: 12,
-    fontWeight: '500' as const,
+    fontWeight: '400' as const,
     lineHeight: 16,
   },
   chip: {
-    fontSize: 14,
-    fontWeight: '600' as const,
-    lineHeight: 18,
+    fontSize: 15,
+    fontWeight: '500' as const,
+    lineHeight: 20,
+    letterSpacing: -0.24,
   },
   button: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '600' as const,
-    lineHeight: 20,
+    lineHeight: 22,
+    letterSpacing: -0.41,
+  },
+  footnote: {
+    fontSize: 13,
+    fontWeight: '400' as const,
+    lineHeight: 18,
+    letterSpacing: -0.08,
+  },
+  headline: {
+    fontSize: 17,
+    fontWeight: '600' as const,
+    lineHeight: 22,
+    letterSpacing: -0.41,
   },
 } as const;
 
-/* ── Shadows ── */
 export const shadow = {
   card: {
-    shadowColor: '#8B7E74',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.07,
-    shadowRadius: 16,
-    elevation: 3,
-  },
-  soft: {
-    shadowColor: '#8B7E74',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
     shadowRadius: 8,
     elevation: 2,
   },
+  soft: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 0.5 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
   button: {
-    shadowColor: '#8B7E74',
-    shadowOffset: { width: 0, height: 3 },
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 3,
+    shadowRadius: 6,
+    elevation: 2,
   },
 } as const;
 
-/* ── Warm palette ── */
 export const palette = {
-  /* Base */
-  warmWhite: '#FAF8F5',
-  warmWhiteDark: '#F3F0EC',
+  warmWhite: '#F2F2F7',
+  warmWhiteDark: '#E5E5EA',
   white: '#FFFFFF',
 
-  /* Text */
-  ink: '#2C2825',
-  inkLight: '#5C5650',
-  inkMuted: '#9A928A',
-  inkFaint: '#C4BEB7',
+  ink: '#000000',
+  inkLight: '#3C3C43',
+  inkMuted: '#8E8E93',
+  inkFaint: '#C7C7CC',
 
-  /* Borders */
-  border: '#E8E4DF',
-  borderLight: '#F0ECE8',
+  border: '#C6C6C8',
+  borderLight: '#E5E5EA',
 
-  /* Primary accent (calm teal-sage) */
-  accent: '#5B9A8B',
-  accentLight: '#E8F3F0',
-  accentDark: '#4A8272',
+  accent: '#007AFF',
+  accentLight: '#E3F0FF',
+  accentDark: '#0056CC',
 
-  /* Secondary (warm amber) */
-  secondary: '#D4A574',
-  secondaryLight: '#FDF3EA',
+  secondary: '#FF9500',
+  secondaryLight: '#FFF4E6',
+  secondaryDark: '#CC7700',
 
-  /* Pastel status */
-  success: '#7CB87C',
-  successLight: '#EDF7ED',
-  warning: '#E4B868',
-  warningLight: '#FFF8EA',
-  error: '#D4636C',
-  errorLight: '#FDEDED',
-  info: '#6BA3D6',
-  infoLight: '#EDF4FB',
+  success: '#34C759',
+  successLight: '#E8FAE8',
+  warning: '#FF9500',
+  warningLight: '#FFF4E6',
+  error: '#FF3B30',
+  errorLight: '#FFE5E5',
+  info: '#5AC8FA',
+  infoLight: '#E8F7FE',
 
-  /* Pastels for chips / tags */
-  pastelPink: '#F5E0E5',
-  pastelBlue: '#DDE9F5',
-  pastelGreen: '#DFF0E3',
-  pastelYellow: '#FDF3DC',
-  pastelLavender: '#E8E0F0',
-  pastelPeach: '#FCE8DA',
-  pastelMint: '#D8F0EA',
+  pastelPink: '#FFD1DC',
+  pastelBlue: '#D1E8FF',
+  pastelGreen: '#D1F2D9',
+  pastelYellow: '#FFF3CD',
+  pastelLavender: '#E8D5F5',
+  pastelPeach: '#FFE5D0',
+  pastelMint: '#D1F2EA',
+
+  systemGroupedBg: '#F2F2F7',
+  secondarySystemGroupedBg: '#FFFFFF',
+  tertiarySystemGroupedBg: '#F2F2F7',
+  separator: 'rgba(60, 60, 67, 0.12)',
+  opaqueSeparator: '#C6C6C8',
 } as const;
 
-/* ── Chip height constant ── */
-export const CHIP_HEIGHT = 32;
+export const CHIP_HEIGHT = 34;
 
-/* ── Animation constants ── */
 export const motion = {
   pressScale: 0.97,
   duration: {

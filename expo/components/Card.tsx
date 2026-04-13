@@ -6,7 +6,7 @@ interface CardProps {
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
   padding?: 'none' | 'small' | 'medium' | 'large';
-  variant?: 'elevated' | 'flat' | 'outlined';
+  variant?: 'elevated' | 'flat' | 'outlined' | 'grouped';
 }
 
 export function Card({ children, style, padding = 'medium', variant = 'elevated' }: CardProps) {
@@ -17,6 +17,7 @@ export function Card({ children, style, padding = 'medium', variant = 'elevated'
         variant === 'elevated' && shadow.card,
         variant === 'outlined' && styles.outlined,
         variant === 'flat' && styles.flat,
+        variant === 'grouped' && styles.grouped,
         styles[padding],
         style,
       ]}
@@ -32,11 +33,15 @@ const styles = StyleSheet.create({
     borderRadius: radius.card,
   },
   outlined: {
-    borderWidth: 1.5,
-    borderColor: palette.borderLight,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: palette.separator,
   },
   flat: {
-    backgroundColor: palette.warmWhiteDark,
+    backgroundColor: palette.secondarySystemGroupedBg,
+  },
+  grouped: {
+    backgroundColor: palette.secondarySystemGroupedBg,
+    borderRadius: radius.card,
   },
   none: {
     padding: 0,

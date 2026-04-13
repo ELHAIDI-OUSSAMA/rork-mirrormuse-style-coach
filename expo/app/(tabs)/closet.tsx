@@ -14,7 +14,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Plus, Shirt, X, Palette, RotateCcw, Sparkles, UserRound, Tag, HandHeart, Archive } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
@@ -26,7 +25,7 @@ import { ClosetItem, ClothingCategory, ProcessingStep } from '@/types';
 import { retryProcessing } from '@/lib/processingQueue';
 
 const { width } = Dimensions.get('window');
-const GAP = 14;
+const GAP = 12;
 const NUM_COLUMNS = 2;
 const ITEM_WIDTH = (width - space.screen * 2 - GAP) / NUM_COLUMNS;
 
@@ -85,47 +84,27 @@ function FilterChip({
   onPress: () => void;
 }) {
   const { themeColors } = useApp();
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-
   return (
-    <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-      <TouchableOpacity
+    <TouchableOpacity
+      style={[
+        styles.filterChip,
+        { backgroundColor: selected ? themeColors.chip.selected : themeColors.chip.unselected },
+      ]}
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        onPress();
+      }}
+      activeOpacity={0.7}
+    >
+      <Text
         style={[
-          styles.filterChip,
-          { backgroundColor: selected ? themeColors.chip.selected : themeColors.chip.unselected },
+          styles.filterChipText,
+          { color: selected ? themeColors.chip.selectedText : themeColors.chip.unselectedText },
         ]}
-        onPressIn={() =>
-          Animated.spring(scaleAnim, {
-            toValue: motion.pressScale,
-            useNativeDriver: true,
-            speed: 50,
-            bounciness: 4,
-          }).start()
-        }
-        onPressOut={() =>
-          Animated.spring(scaleAnim, {
-            toValue: 1,
-            useNativeDriver: true,
-            speed: 40,
-            bounciness: 6,
-          }).start()
-        }
-        onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          onPress();
-        }}
-        activeOpacity={0.9}
       >
-        <Text
-          style={[
-            styles.filterChipText,
-            { color: selected ? themeColors.chip.selectedText : themeColors.chip.unselectedText },
-          ]}
-        >
-          {label}
-        </Text>
-      </TouchableOpacity>
-    </Animated.View>
+        {label}
+      </Text>
+    </TouchableOpacity>
   );
 }
 
@@ -167,7 +146,7 @@ function ClosetTile({
         style={[styles.itemCard, isSticker && hasImage && !isPending && !isFailed && styles.itemCardStickerOnly]}
         onPress={onPress}
         onLongPress={onDelete}
-        activeOpacity={0.92}
+        activeOpacity={0.85}
       >
         {hasImage ? (
           <View style={styles.itemImageWrap}>
@@ -214,17 +193,10 @@ function ClosetTile({
           </View>
         )}
 
-        {isNew ? (
-          <LinearGradient
-            colors={['#F7B2E8', '#8FD5FA']}
-            start={{ x: 0, y: 0.5 }}
-            end={{ x: 1, y: 0.5 }}
-            style={styles.newBadge}
-          >
-            <View style={styles.newBadgeInner}>
-              <Text style={styles.newBadgeText}>New</Text>
-            </View>
-          </LinearGradient>
+        {isNew && !isPending && !isFailed ? (
+          <View style={styles.newBadge}>
+            <Text style={styles.newBadgeText}>New</Text>
+          </View>
         ) : null}
 
         {statusBadge ? (
@@ -345,7 +317,6 @@ export default function ClosetScreen() {
     }
   }, []);
 
-  // Auto-retry missing stickers so closet never falls back to full-photo rendering.
   React.useEffect(() => {
     for (const item of lifecycleFilteredItems) {
       const hasSticker = !!item.stickerPngUri;
@@ -424,8 +395,8 @@ export default function ClosetScreen() {
 
   const headerRight = (
     <>
-      <IconButton icon={<Palette size={20} color={palette.ink} />} onPress={handleCreateOutfit} />
-      <IconButton icon={<Plus size={22} color="#FFF" />} variant="filled" fillColor={palette.accent} onPress={handleAddClothing} />
+      <IconButton icon={<Palette size={18} color={palette.ink} />} onPress={handleCreateOutfit} />
+      <IconButton icon={<Plus size={20} color="#FFF" />} variant="filled" fillColor={palette.accent} onPress={handleAddClothing} />
     </>
   );
   const sheetOpportunity = sheetItem ? getSellOpportunityForItem(sheetItem.id) : undefined;
@@ -488,32 +459,30 @@ export default function ClosetScreen() {
 
         {cleanupCandidates.length > 0 ? (
           <TouchableOpacity
-            style={styles.cleanupInsightCard}
-            activeOpacity={0.85}
+            style={styles.insightCard}
+            activeOpacity={0.7}
             onPress={() => router.push('/closet-cleanup' as any)}
           >
-            <View>
-              <Text style={styles.cleanupInsightTitle}>
-                {cleanupCandidates.length} item{cleanupCandidates.length > 1 ? 's' : ''} have not been worn in a while
+            <View style={{ flex: 1 }}>
+              <Text style={styles.insightTitle}>
+                {cleanupCandidates.length} item{cleanupCandidates.length > 1 ? 's' : ''} not worn recently
               </Text>
-              <Text style={styles.cleanupInsightSubtitle}>
-                Would you like to keep it, sell it, or donate it?
-              </Text>
+              <Text style={styles.insightSubtitle}>Keep, sell, or donate?</Text>
             </View>
-            <Text style={styles.cleanupInsightCta}>Review items</Text>
+            <Text style={styles.insightCta}>Review</Text>
           </TouchableOpacity>
         ) : null}
 
         <TouchableOpacity
-          style={styles.cleanupInsightCard}
-          activeOpacity={0.85}
+          style={styles.insightCard}
+          activeOpacity={0.7}
           onPress={() => router.push('/closet-value' as any)}
         >
-          <View>
-            <Text style={styles.cleanupInsightTitle}>Your wardrobe value ${closetValueInsights.totalClosetValue.toLocaleString()}</Text>
-            <Text style={styles.cleanupInsightSubtitle}>See resale potential and top-value pieces</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.insightTitle}>Wardrobe value ${closetValueInsights.totalClosetValue.toLocaleString()}</Text>
+            <Text style={styles.insightSubtitle}>See resale potential</Text>
           </View>
-          <Text style={styles.cleanupInsightCta}>View value</Text>
+          <Text style={styles.insightCta}>View</Text>
         </TouchableOpacity>
 
         <FlatList
@@ -528,23 +497,23 @@ export default function ClosetScreen() {
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <View style={styles.emptyIcon}>
-                <Shirt size={48} color={palette.inkMuted} />
+                <Shirt size={44} color={palette.inkMuted} />
               </View>
-              <Text style={styles.emptyTitle}>Your closet is looking empty</Text>
+              <Text style={styles.emptyTitle}>Your closet is empty</Text>
               <Text style={styles.emptySubtitle}>Start adding pieces to build your wardrobe</Text>
-              <TouchableOpacity style={styles.emptyCta} onPress={handleAddClothing} activeOpacity={0.85}>
+              <TouchableOpacity style={styles.emptyCta} onPress={handleAddClothing} activeOpacity={0.7}>
                 <Text style={styles.emptyCtaText}>Add your first piece</Text>
               </TouchableOpacity>
             </View>
           }
         />
-
       </SafeAreaView>
 
       <Modal visible={showActionSheet} transparent animationType="none" onRequestClose={closeItemActions}>
         <Animated.View style={[styles.actionSheetBackdrop, { opacity: actionSheetBackdropOpacity }]}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={closeItemActions} />
           <Animated.View style={[styles.actionSheet, { transform: [{ translateY: actionSheetTranslateY }] }]}>
+            <View style={styles.sheetHandle} />
             <Text style={styles.actionSheetTitle}>Item Actions</Text>
             {sheetItem ? (
               <>
@@ -555,11 +524,13 @@ export default function ClosetScreen() {
                     router.push({ pathname: '/marketplace/create-listing', params: { closetItemId: sheetItem.id } } as any);
                   }}
                 >
-                  <Tag size={18} color={palette.secondary} />
+                  <View style={[styles.actionIcon, { backgroundColor: '#FF9500' }]}>
+                    <Tag size={16} color="#FFF" />
+                  </View>
                   <View style={styles.actionSheetTextWrap}>
-                    <Text style={styles.actionSheetRowTitle}>List item on marketplace</Text>
+                    <Text style={styles.actionSheetRowTitle}>List on marketplace</Text>
                     <Text style={styles.actionSheetRowSubtitle}>
-                      {sheetOpportunity?.demandLevel === 'high' ? 'High demand right now' : 'Publish this closet piece for buyers'}
+                      {sheetOpportunity?.demandLevel === 'high' ? 'High demand right now' : 'Sell this piece'}
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -575,7 +546,9 @@ export default function ClosetScreen() {
                     router.push({ pathname: '/donate-item', params: { closetItemId: sheetItem.id } } as any);
                   }}
                 >
-                  <HandHeart size={18} color={palette.success} />
+                  <View style={[styles.actionIcon, { backgroundColor: '#34C759' }]}>
+                    <HandHeart size={16} color="#FFF" />
+                  </View>
                   <View style={styles.actionSheetTextWrap}>
                     <Text style={styles.actionSheetRowTitle}>Donate item</Text>
                     <Text style={styles.actionSheetRowSubtitle}>Give this item a second life</Text>
@@ -588,23 +561,12 @@ export default function ClosetScreen() {
                     router.push({ pathname: '/outfit-builder', params: { closetItemId: sheetItem.id } } as any);
                   }}
                 >
-                  <Sparkles size={18} color={palette.accentDark} />
-                  <View style={styles.actionSheetTextWrap}>
-                    <Text style={styles.actionSheetRowTitle}>Generate outfit using item</Text>
-                    <Text style={styles.actionSheetRowSubtitle}>Create a look around this piece</Text>
+                  <View style={[styles.actionIcon, { backgroundColor: '#AF52DE' }]}>
+                    <Sparkles size={16} color="#FFF" />
                   </View>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.actionSheetRow, styles.actionSheetRowDanger]}
-                  onPress={() => {
-                    closeItemActions();
-                    handleDelete(sheetItem);
-                  }}
-                >
-                  <Archive size={18} color={palette.error} />
                   <View style={styles.actionSheetTextWrap}>
-                    <Text style={[styles.actionSheetRowTitle, { color: palette.error }]}>Delete item</Text>
-                    <Text style={styles.actionSheetRowSubtitle}>Archive and remove from closet</Text>
+                    <Text style={styles.actionSheetRowTitle}>Generate outfit</Text>
+                    <Text style={styles.actionSheetRowSubtitle}>Create a look around this piece</Text>
                   </View>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -614,10 +576,27 @@ export default function ClosetScreen() {
                     router.push({ pathname: '/digital-twin', params: { closetItemIds: sheetItem.id } } as any);
                   }}
                 >
-                  <UserRound size={18} color={palette.info} />
+                  <View style={[styles.actionIcon, { backgroundColor: '#5AC8FA' }]}>
+                    <UserRound size={16} color="#FFF" />
+                  </View>
                   <View style={styles.actionSheetTextWrap}>
-                    <Text style={styles.actionSheetRowTitle}>Try item on avatar</Text>
-                    <Text style={styles.actionSheetRowSubtitle}>See this piece on your AI Twin</Text>
+                    <Text style={styles.actionSheetRowTitle}>Try on avatar</Text>
+                    <Text style={styles.actionSheetRowSubtitle}>See on your AI Twin</Text>
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionSheetRow, styles.actionSheetRowDanger]}
+                  onPress={() => {
+                    closeItemActions();
+                    handleDelete(sheetItem);
+                  }}
+                >
+                  <View style={[styles.actionIcon, { backgroundColor: palette.error }]}>
+                    <Archive size={16} color="#FFF" />
+                  </View>
+                  <View style={styles.actionSheetTextWrap}>
+                    <Text style={[styles.actionSheetRowTitle, { color: palette.error }]}>Delete item</Text>
+                    <Text style={styles.actionSheetRowSubtitle}>Archive and remove</Text>
                   </View>
                 </TouchableOpacity>
               </>
@@ -629,6 +608,7 @@ export default function ClosetScreen() {
       <Modal visible={showAddSheet} transparent animationType="fade" onRequestClose={() => setShowAddSheet(false)}>
         <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setShowAddSheet(false)}>
           <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>Add to Closet</Text>
             <TouchableOpacity style={styles.sheetOption} onPress={() => { setShowAddSheet(false); router.push('/add-clothing' as never); }}>
               <Text style={styles.sheetOptionText}>Take photo</Text>
@@ -650,13 +630,12 @@ export default function ClosetScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
-
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: palette.warmWhite },
+  container: { flex: 1, backgroundColor: palette.systemGroupedBg },
   safeArea: { flex: 1 },
 
   filtersScroll: { flexGrow: 0, flexShrink: 0 },
@@ -664,36 +643,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: space.screen,
-    paddingTop: 4,
-    paddingBottom: 14,
-    gap: 10,
+    paddingTop: 2,
+    paddingBottom: 10,
+    gap: 8,
   },
   filterChip: {
     height: CHIP_HEIGHT,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  filterChipText: { ...typo.chip },
-  cleanupInsightCard: {
+  filterChipText: { ...typo.chip, fontSize: 14 },
+
+  insightCard: {
     marginHorizontal: space.screen,
-    marginBottom: 12,
-    borderRadius: radius.lg,
-    backgroundColor: palette.secondaryLight,
-    borderWidth: 1,
-    borderColor: palette.borderLight,
-    paddingHorizontal: space.md,
+    marginBottom: 10,
+    borderRadius: radius.card,
+    backgroundColor: palette.secondarySystemGroupedBg,
+    paddingHorizontal: 16,
     paddingVertical: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
   },
-  cleanupInsightTitle: { ...typo.bodyMedium, color: palette.ink },
-  cleanupInsightSubtitle: { ...typo.small, color: palette.inkMuted, marginTop: 2 },
-  cleanupInsightCta: { ...typo.caption, color: palette.accentDark, fontWeight: '700' },
+  insightTitle: { ...typo.bodyMedium, color: palette.ink, fontSize: 15 },
+  insightSubtitle: { ...typo.caption, color: palette.inkMuted, marginTop: 1 },
+  insightCta: { ...typo.bodyMedium, color: palette.accent, fontSize: 15 },
 
-  gridContent: { paddingHorizontal: space.screen, paddingBottom: 100 },
+  gridContent: { paddingHorizontal: space.screen, paddingBottom: 120 },
   gridContentEmpty: { flexGrow: 1 },
   columnWrapper: { justifyContent: 'space-between', marginBottom: GAP },
   gridCell: { width: ITEM_WIDTH },
@@ -701,8 +678,8 @@ const styles = StyleSheet.create({
   itemCard: {
     width: '100%',
     aspectRatio: 1,
-    backgroundColor: '#F1F1F5',
-    borderRadius: 22,
+    backgroundColor: palette.secondarySystemGroupedBg,
+    borderRadius: radius.card,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
@@ -735,33 +712,32 @@ const styles = StyleSheet.create({
   itemImageFallback: {
     width: '100%',
     height: '100%',
-    borderRadius: 18,
+    borderRadius: radius.card,
   },
   missingStickerWrap: {
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
   },
 
   processingOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.40)',
+    backgroundColor: 'rgba(0,0,0,0.45)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 22,
+    borderRadius: radius.card,
     gap: 8,
   },
-  processingText: { fontSize: 12, fontWeight: '600', color: '#FFF' },
+  processingText: { fontSize: 12, fontWeight: '600' as const, color: '#FFF' },
 
   failedOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.50)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 22,
+    borderRadius: radius.card,
     gap: 8,
   },
-  failedText: { fontSize: 13, fontWeight: '700', color: '#FFF' },
+  failedText: { fontSize: 13, fontWeight: '700' as const, color: '#FFF' },
   retryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -771,27 +747,23 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 20,
   },
-  retryBtnText: { fontSize: 12, fontWeight: '600', color: '#FFF' },
+  retryBtnText: { fontSize: 12, fontWeight: '600' as const, color: '#FFF' },
   removeLink: { marginTop: 2 },
-  removeLinkText: { fontSize: 11, color: 'rgba(255,255,255,0.7)', textDecorationLine: 'underline' },
+  removeLinkText: { fontSize: 11, color: 'rgba(255,255,255,0.7)', textDecorationLine: 'underline' as const },
 
   newBadge: {
     position: 'absolute',
-    top: 10,
-    right: 10,
+    top: 8,
+    right: 8,
+    backgroundColor: palette.accent,
     borderRadius: radius.pill,
-    padding: 1.5,
-  },
-  newBadgeInner: {
-    backgroundColor: '#F7F8FA',
-    borderRadius: radius.pill,
-    paddingHorizontal: 9,
+    paddingHorizontal: 8,
     paddingVertical: 3,
   },
   newBadgeText: {
     fontSize: 10,
-    fontWeight: '700',
-    color: '#1B2A3A',
+    fontWeight: '700' as const,
+    color: '#FFFFFF',
   },
   statusBadge: {
     position: 'absolute',
@@ -828,69 +800,84 @@ const styles = StyleSheet.create({
     paddingTop: 80,
   },
   emptyIcon: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: '#F1F1F5',
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: palette.warmWhiteDark,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
+    marginBottom: 20,
   },
   emptyTitle: { ...typo.sectionHeader, color: palette.ink, marginBottom: 8, textAlign: 'center' },
-  emptySubtitle: { ...typo.body, color: palette.inkMuted, textAlign: 'center', lineHeight: 24, marginBottom: 24 },
+  emptySubtitle: { ...typo.body, color: palette.inkMuted, textAlign: 'center', marginBottom: 24, fontSize: 15 },
   emptyCta: { backgroundColor: palette.accent, paddingHorizontal: 24, paddingVertical: 14, borderRadius: radius.button },
-  emptyCtaText: { ...typo.button, color: palette.white },
+  emptyCtaText: { ...typo.button, color: '#FFF' },
 
   actionSheetBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.28)',
+    backgroundColor: 'rgba(0,0,0,0.3)',
     justifyContent: 'flex-end',
   },
   actionSheet: {
-    backgroundColor: palette.white,
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
-    paddingHorizontal: space.md,
-    paddingTop: space.md,
-    paddingBottom: 24,
-    gap: 4,
+    backgroundColor: palette.secondarySystemGroupedBg,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 34,
+    gap: 2,
   },
-  actionSheetTitle: { ...typo.sectionHeader, color: palette.ink, marginBottom: 4 },
+  sheetHandle: {
+    width: 36,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: palette.warmWhiteDark,
+    alignSelf: 'center',
+    marginBottom: 12,
+  },
+  actionSheetTitle: { ...typo.headline, color: palette.ink, marginBottom: 8 },
   actionSheetRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 6,
-    paddingVertical: 11,
-    borderRadius: radius.md,
+    gap: 14,
+    paddingHorizontal: 4,
+    paddingVertical: 12,
   },
   actionSheetRowDanger: {
     marginTop: 4,
-    backgroundColor: palette.errorLight,
+  },
+  actionIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   actionSheetTextWrap: { flex: 1 },
-  actionSheetRowTitle: { ...typo.bodyMedium, color: palette.ink },
-  actionSheetRowSubtitle: { ...typo.small, color: palette.inkMuted, marginTop: 1 },
+  actionSheetRowTitle: { ...typo.body, color: palette.ink, fontSize: 16 },
+  actionSheetRowSubtitle: { ...typo.caption, color: palette.inkMuted, marginTop: 1 },
 
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.25)',
+    backgroundColor: 'rgba(0,0,0,0.3)',
     justifyContent: 'flex-end',
   },
   sheet: {
-    backgroundColor: palette.white,
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
-    padding: space.md,
-    gap: space.sm,
+    backgroundColor: palette.secondarySystemGroupedBg,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    padding: 16,
+    paddingTop: 8,
+    paddingBottom: 34,
+    gap: 6,
   },
-  sheetTitle: { ...typo.sectionHeader, color: palette.ink, marginBottom: 4 },
+  sheetTitle: { ...typo.headline, color: palette.ink, marginBottom: 6 },
   sheetOption: {
-    height: 44,
-    borderRadius: radius.md,
-    backgroundColor: palette.warmWhiteDark,
+    height: 48,
+    borderRadius: radius.card,
+    backgroundColor: palette.systemGroupedBg,
     justifyContent: 'center',
-    paddingHorizontal: space.md,
+    paddingHorizontal: 16,
   },
-  sheetOptionText: { ...typo.bodyMedium, color: palette.ink },
+  sheetOptionText: { ...typo.body, color: palette.accent, fontSize: 16 },
 });

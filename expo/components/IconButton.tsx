@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { TouchableOpacity, StyleSheet, Animated, StyleProp, ViewStyle } from 'react-native';
-import { radius, shadow, palette, motion } from '@/constants/theme';
+import { palette, motion } from '@/constants/theme';
 
 interface IconButtonProps {
   onPress: () => void;
@@ -17,7 +17,7 @@ export function IconButton({
   icon,
   variant = 'default',
   fillColor,
-  size = 44,
+  size = 38,
   style,
   disabled = false,
 }: IconButtonProps) {
@@ -46,20 +46,21 @@ export function IconButton({
       <TouchableOpacity
         style={[
           styles.button,
-          shadow.soft,
           {
             width: size,
             height: size,
             borderRadius: size / 2,
             backgroundColor:
-              variant === 'filled' ? fillColor || palette.accent : palette.white,
+              variant === 'filled'
+                ? fillColor || palette.accent
+                : 'rgba(118, 118, 128, 0.12)',
           },
           disabled && { opacity: 0.4 },
         ]}
         onPress={onPress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
-        activeOpacity={0.85}
+        activeOpacity={0.7}
         disabled={disabled}
       >
         {icon}

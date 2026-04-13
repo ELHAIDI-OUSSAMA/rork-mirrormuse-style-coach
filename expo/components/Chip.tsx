@@ -55,7 +55,7 @@ export function Chip({ label, selected, onPress, style, size = 'medium' }: ChipP
         onPress={handlePress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
-        activeOpacity={0.85}
+        activeOpacity={0.7}
       >
         <Text
           style={[
@@ -96,7 +96,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  label: {
-    // typography applied via typo.chip
-  },
+  label: {},
 });

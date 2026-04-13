@@ -24,11 +24,11 @@ export function AppHeader({ title, subtitle, right, style }: AppHeaderProps) {
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     justifyContent: 'space-between',
     paddingHorizontal: space.screen,
-    paddingTop: 10,
-    paddingBottom: 6,
+    paddingTop: 8,
+    paddingBottom: 10,
   },
   textWrap: {
     flex: 1,
@@ -38,13 +38,14 @@ const styles = StyleSheet.create({
     color: palette.ink,
   },
   subtitle: {
-    ...typo.caption,
+    ...typo.footnote,
     color: palette.inkMuted,
     marginTop: 2,
   },
   actions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
+    paddingBottom: 4,
   },
 });

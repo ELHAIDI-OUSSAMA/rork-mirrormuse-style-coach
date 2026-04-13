@@ -1,11 +1,10 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated } from 'react-native';
 import { useRouter } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Sparkles } from 'lucide-react-native';
-import { neutralColors } from '@/constants/Colors';
 import { useApp } from '@/contexts/AppContext';
 import { Button } from '@/components/Button';
+import { palette, type as typo, radius } from '@/constants/theme';
 
 export default function SplashScreen() {
   const router = useRouter();
@@ -50,15 +49,6 @@ export default function SplashScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={gradientColors(preferences.gender)}
-        style={StyleSheet.absoluteFill}
-      />
-
-      <View style={[styles.decorCircle1, { backgroundColor: colorsForUi(preferences.gender, themeColors).primary + '15' }]} />
-      <View style={[styles.decorCircle2, { backgroundColor: colorsForUi(preferences.gender, themeColors).secondary + '10' }]} />
-      <View style={[styles.decorCircle3, { backgroundColor: colorsForUi(preferences.gender, themeColors).accent + '10' }]} />
-
       <Animated.View
         style={[
           styles.content,
@@ -69,17 +59,17 @@ export default function SplashScreen() {
         ]}
       >
         <View style={styles.logoContainer}>
-          <View style={[styles.iconWrapper, { backgroundColor: colorsForUi(preferences.gender, themeColors).card }]}>
-            <Sparkles size={40} color={colorsForUi(preferences.gender, themeColors).primary} />
+          <View style={[styles.iconWrapper, { backgroundColor: themeColors.primary + '15' }]}>
+            <Sparkles size={36} color={themeColors.primary} />
           </View>
-          <Text style={[styles.logo, { color: colorsForUi(preferences.gender, themeColors).text }]}>MirrorMuse</Text>
+          <Text style={styles.logo}>MirrorMuse</Text>
         </View>
 
-        <Text style={[styles.tagline, { color: colorsForUi(preferences.gender, themeColors).text }]}>
-          Your mirror selfie{'\n'}→ outfit upgrades
+        <Text style={styles.tagline}>
+          Your mirror selfie{'\n'}becomes outfit upgrades
         </Text>
 
-        <Text style={[styles.subtitle, { color: colorsForUi(preferences.gender, themeColors).textSecondary }]}>
+        <Text style={styles.subtitle}>
           Get instant styling suggestions powered by AI.{'\n'}
           Confidence-boosting, never judgy.
         </Text>
@@ -104,58 +94,21 @@ export default function SplashScreen() {
   );
 }
 
-function colorsForUi(gender: 'male' | 'female' | undefined, themeColors: any) {
-  return gender ? themeColors : neutralColors;
-}
-
-function gradientColors(gender: 'male' | 'female' | undefined) {
-  if (gender === 'male') {
-    return ['#FAFAFA', '#F0F0F0', '#E8E8E8'] as const;
-  }
-  if (gender === 'female') {
-    return ['#FDF8F6', '#F5EDE8', '#E8D5CF'] as const;
-  }
-  return ['#FFFFFF', '#F5F5F5', '#EEEEEE'] as const;
-}
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: 'space-between',
-    paddingTop: 120,
+    paddingTop: 140,
     paddingBottom: 60,
-    paddingHorizontal: 24,
-  },
-  decorCircle1: {
-    position: 'absolute',
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    top: -100,
-    right: -100,
-  },
-  decorCircle2: {
-    position: 'absolute',
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    bottom: 200,
-    left: -80,
-  },
-  decorCircle3: {
-    position: 'absolute',
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    bottom: 80,
-    right: -50,
+    paddingHorizontal: 28,
+    backgroundColor: palette.systemGroupedBg,
   },
   content: {
     alignItems: 'center',
   },
   logoContainer: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 36,
   },
   iconWrapper: {
     width: 80,
@@ -164,28 +117,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
-    shadowColor: 'rgba(0,0,0,0.1)',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 1,
-    shadowRadius: 24,
-    elevation: 8,
   },
   logo: {
-    fontSize: 36,
+    fontSize: 38,
     fontWeight: '700' as const,
-    letterSpacing: -1,
+    letterSpacing: -0.5,
+    color: palette.ink,
   },
   tagline: {
-    fontSize: 28,
-    fontWeight: '600' as const,
+    ...typo.screenTitle,
+    fontSize: 30,
+    lineHeight: 38,
     textAlign: 'center',
-    lineHeight: 36,
     marginBottom: 16,
+    color: palette.ink,
   },
   subtitle: {
-    fontSize: 16,
+    ...typo.body,
+    fontSize: 17,
     textAlign: 'center',
     lineHeight: 24,
+    color: palette.inkMuted,
   },
   buttons: {
     width: '100%',

@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useApp } from '@/contexts/AppContext';
-import { radius, shadow, type as typo, motion, palette } from '@/constants/theme';
+import { radius, type as typo, motion, palette } from '@/constants/theme';
 
 interface ButtonProps {
   title: string;
@@ -82,16 +82,16 @@ export function Button({
           sizeStyles[size],
           { backgroundColor: bgColor },
           variant === 'outline' && {
-            borderWidth: 1.5,
-            borderColor: themeColors.border,
+            borderWidth: 1,
+            borderColor: palette.separator,
+            backgroundColor: palette.secondarySystemGroupedBg,
           },
-          variant !== 'ghost' && shadow.soft,
           disabled && styles.disabled,
         ]}
         onPress={handlePress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
-        activeOpacity={0.85}
+        activeOpacity={0.7}
         disabled={disabled || loading}
       >
         {loading ? (
@@ -108,9 +108,9 @@ export function Button({
 }
 
 const sizeStyles = StyleSheet.create({
-  small: { height: 38, paddingHorizontal: 16 },
-  medium: { height: 48, paddingHorizontal: 22 },
-  large: { height: 54, paddingHorizontal: 28 },
+  small: { height: 36, paddingHorizontal: 16 },
+  medium: { height: 50, paddingHorizontal: 20 },
+  large: { height: 56, paddingHorizontal: 24 },
 });
 
 const styles = StyleSheet.create({
@@ -122,6 +122,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   disabled: {
-    opacity: 0.45,
+    opacity: 0.35,
   },
 });

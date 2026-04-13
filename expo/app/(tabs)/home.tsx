@@ -2,20 +2,60 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Animated, View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Camera, Image as ImageIcon, Sparkles, ChevronDown, CalendarClock, Flame, ArrowRight, HeartHandshake, BellRing, Wallet, TrendingUp, Link2 } from 'lucide-react-native';
+import { Camera, Image as ImageIcon, Sparkles, ChevronRight, CalendarClock, Flame, ArrowRight, HeartHandshake, BellRing, Wallet, TrendingUp, Link2 } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import { useApp } from '@/contexts/AppContext';
-import { space, radius, shadow, palette, type as typo } from '@/constants/theme';
+import { space, radius, palette, type as typo } from '@/constants/theme';
 import { AppHeader } from '@/components/AppHeader';
-import { Button } from '@/components/Button';
-import { Chip } from '@/components/Chip';
-import { Card } from '@/components/Card';
 import { OCCASIONS, FEMALE_STYLE_VIBES, MALE_STYLE_VIBES, Occasion, StyleVibe, WeatherSnapshot } from '@/types';
 import { getLiveWeatherForDate } from '@/utils/weather';
 import { getXpProgress } from '@/utils/gamification';
 import { easings, useReduceMotion } from '@/lib/motion';
 import { trackSocialImportEvent } from '@/lib/socialImportEntry';
+
+function GroupedSection({ children, style }: { children: React.ReactNode; style?: object }) {
+  return <View style={[styles.groupedSection, style]}>{children}</View>;
+}
+
+function GroupedRow({
+  icon,
+  iconBg,
+  title,
+  subtitle,
+  onPress,
+  showChevron = true,
+  rightElement,
+}: {
+  icon: React.ReactNode;
+  iconBg: string;
+  title: string;
+  subtitle?: string;
+  onPress?: () => void;
+  showChevron?: boolean;
+  rightElement?: React.ReactNode;
+}) {
+  return (
+    <TouchableOpacity
+      style={styles.groupedRow}
+      onPress={onPress}
+      activeOpacity={onPress ? 0.6 : 1}
+      disabled={!onPress}
+    >
+      <View style={[styles.groupedRowIcon, { backgroundColor: iconBg }]}>
+        {icon}
+      </View>
+      <View style={styles.groupedRowContent}>
+        <View style={styles.groupedRowText}>
+          <Text style={styles.groupedRowTitle} numberOfLines={1}>{title}</Text>
+          {subtitle ? <Text style={styles.groupedRowSubtitle} numberOfLines={2}>{subtitle}</Text> : null}
+        </View>
+        {rightElement}
+        {showChevron && onPress ? <ChevronRight size={17} color={palette.inkFaint} /> : null}
+      </View>
+    </TouchableOpacity>
+  );
+}
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -43,8 +83,6 @@ export default function HomeScreen() {
   const [selectedVibe, setSelectedVibe] = useState<StyleVibe>(
     preferences.vibes[0] || styleVibes[0]
   );
-  const [showOccasions, setShowOccasions] = useState(false);
-  const [showVibes, setShowVibes] = useState(false);
   const [weather, setWeather] = useState<WeatherSnapshot | null>(null);
   const currentStreak = gamificationState.streak.current;
   const xpProgress = getXpProgress(gamificationState.xp, gamificationState.level);
@@ -126,26 +164,15 @@ export default function HomeScreen() {
     router.push('/progress' as any);
   };
 
-  const subtitle =
-    preferences.gender === 'male'
-      ? 'Ready for your fit check?'
-      : 'Ready for your fit check? ✨';
-
   const getWeatherIcon = () => {
     if (!weather) return '📍';
     switch (weather.condition) {
-      case 'sunny':
-        return '☀️';
-      case 'cloudy':
-        return '☁️';
-      case 'rainy':
-        return '🌧️';
-      case 'snowy':
-        return '❄️';
-      case 'windy':
-        return '💨';
-      default:
-        return '☀️';
+      case 'sunny': return '☀️';
+      case 'cloudy': return '☁️';
+      case 'rainy': return '🌧️';
+      case 'snowy': return '❄️';
+      case 'windy': return '💨';
+      default: return '☀️';
     }
   };
 
@@ -160,8 +187,8 @@ export default function HomeScreen() {
           showsVerticalScrollIndicator={false}
         >
           <AppHeader
-            title="Fit Check"
-            subtitle={subtitle}
+            title="Home"
+            subtitle={preferences.gender === 'male' ? 'Ready for your fit check?' : 'Ready for your fit check?'}
             right={
               <View style={styles.weatherBadge}>
                 <Text style={styles.weatherEmoji}>{getWeatherIcon()}</Text>
@@ -170,298 +197,170 @@ export default function HomeScreen() {
             }
           />
 
-          <Card style={styles.mainCard} padding="large" variant="elevated">
-            <View style={styles.iconBlock}>
-              <View style={styles.mainIcon}>
-                <Sparkles size={32} color={palette.accent} />
+          <GroupedSection>
+            <View style={styles.heroCard}>
+              <View style={styles.heroIconWrap}>
+                <Sparkles size={28} color={themeColors.primary} />
+              </View>
+              <Text style={styles.heroTitle}>Get outfit suggestions</Text>
+              <Text style={styles.heroDesc}>
+                Take a mirror selfie or upload a photo to get personalized styling tips
+              </Text>
+              <View style={styles.heroButtons}>
+                <TouchableOpacity
+                  style={[styles.heroBtn, { backgroundColor: themeColors.primary }]}
+                  onPress={handleTakePhoto}
+                  activeOpacity={0.7}
+                >
+                  <Camera size={18} color="#FFFFFF" />
+                  <Text style={styles.heroBtnText}>Take Photo</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.heroBtn, styles.heroBtnOutline]}
+                  onPress={handleUploadPhoto}
+                  activeOpacity={0.7}
+                >
+                  <ImageIcon size={18} color={themeColors.primary} />
+                  <Text style={[styles.heroBtnText, { color: themeColors.primary }]}>Upload</Text>
+                </TouchableOpacity>
               </View>
             </View>
-            <Text style={styles.cardTitle}>Get outfit suggestions</Text>
-            <Text style={styles.cardDesc}>
-              Take a mirror selfie or upload a photo to get personalized styling tips
-            </Text>
+          </GroupedSection>
 
-            <View style={styles.buttons}>
-              <Button
-                title="Take Photo"
-                onPress={handleTakePhoto}
-                variant="primary"
-                size="large"
-                icon={<Camera size={20} color="#FFFFFF" />}
-                style={styles.primaryBtn}
-              />
-              <Button
-                title="Upload Photo"
-                onPress={handleUploadPhoto}
-                variant="outline"
-                size="large"
-                icon={<ImageIcon size={20} color={themeColors.primary} />}
-              />
-            </View>
-          </Card>
-
-          <Card style={styles.importCard} padding="medium" variant="elevated">
-            <View style={styles.planHeader}>
-              <View style={styles.importIcon}>
-                <Link2 size={20} color={palette.accentDark} />
-              </View>
-              <View style={styles.planText}>
-                <Text style={styles.planTitle}>Import from social media</Text>
-                <Text style={styles.planSubtitle}>
-                  Turn online outfit inspiration into saved looks, closet items, and outfit ideas
-                </Text>
-              </View>
-            </View>
-            <Text style={styles.importSources}>Instagram • TikTok • Pinterest • Safari</Text>
-            <Button
-              title="Import outfit"
+          <Text style={styles.sectionLabel}>QUICK ACTIONS</Text>
+          <GroupedSection>
+            <GroupedRow
+              icon={<Link2 size={17} color="#FFFFFF" />}
+              iconBg="#5856D6"
+              title="Import from social media"
+              subtitle="Instagram, TikTok, Pinterest"
               onPress={() => {
                 trackSocialImportEvent('import_social_home_cta_tapped');
                 router.push('/import-social' as any);
               }}
-              variant="secondary"
-              size="medium"
-              icon={<ArrowRight size={18} color="#FFFFFF" />}
             />
-          </Card>
+            <View style={styles.rowSeparator} />
+            <GroupedRow
+              icon={<CalendarClock size={17} color="#FFFFFF" />}
+              iconBg="#FF9500"
+              title="Plan your outfit"
+              subtitle={closetItems.length > 0 ? `Use your ${closetItems.length} closet items` : 'Add items to your closet first'}
+              onPress={closetItems.length >= 2 ? handlePlanOutfit : undefined}
+            />
+            <View style={styles.rowSeparator} />
+            <GroupedRow
+              icon={<HeartHandshake size={17} color="#FFFFFF" />}
+              iconBg="#34C759"
+              title="Closet cleanup"
+              subtitle={cleanupCandidates.length > 0 ? `${cleanupCandidates.length} items to review` : 'Sell or donate unused items'}
+              onPress={() => router.push('/closet-cleanup' as any)}
+            />
+          </GroupedSection>
 
           {topDemandAlert ? (
-            <Card style={styles.demandCard} padding="medium" variant="outlined">
-              <View style={styles.planHeader}>
-                <View style={styles.demandIcon}>
-                  <BellRing size={20} color={palette.secondary} />
-                </View>
-                <View style={styles.planText}>
-                  <Text style={styles.planTitle}>High demand alert</Text>
-                  <Text style={styles.planSubtitle}>{topDemandAlert.message}</Text>
-                </View>
-              </View>
-              <Text style={styles.demandMeta}>
-                Demand: {topDemandAlert.demandLevel.toUpperCase()} · Est. resale value: ${topDemandAlert.estimatedResaleValue}
-              </Text>
-              <Button
-                title="List this item"
-                onPress={() => {
-                  const closetItem = getClosetItemById(topDemandAlert.closetItemId);
-                  markDemandNotificationSeen(topDemandAlert.id);
-                  if (!closetItem) return;
-                  router.push({ pathname: '/marketplace/create-listing', params: { closetItemId: closetItem.id } } as any);
-                }}
-                variant="secondary"
-                size="medium"
-                icon={<ArrowRight size={18} color="#FFFFFF" />}
-              />
-            </Card>
+            <>
+              <Text style={styles.sectionLabel}>ALERTS</Text>
+              <GroupedSection>
+                <GroupedRow
+                  icon={<BellRing size={17} color="#FFFFFF" />}
+                  iconBg="#FF3B30"
+                  title="High demand alert"
+                  subtitle={topDemandAlert.message}
+                  onPress={() => {
+                    const closetItem = getClosetItemById(topDemandAlert.closetItemId);
+                    markDemandNotificationSeen(topDemandAlert.id);
+                    if (!closetItem) return;
+                    router.push({ pathname: '/marketplace/create-listing', params: { closetItemId: closetItem.id } } as any);
+                  }}
+                />
+              </GroupedSection>
+            </>
           ) : null}
 
-          <Card style={styles.quickInsightCard} padding="medium" variant="outlined">
-            <View style={styles.planHeader}>
-              <View style={styles.quickInsightIcon}>
-                <TrendingUp size={20} color={palette.secondaryDark} />
-              </View>
-              <View style={styles.planText}>
-                <Text style={styles.planTitle}>Sell what&apos;s in demand</Text>
-                <Text style={styles.planSubtitle}>
-                  Some items in your closet could sell quickly ({highDemandSellOpportunities.length} high demand)
-                </Text>
-              </View>
-            </View>
-            <Button
-              title={sellOpportunities.length > 0 ? 'Review opportunities' : 'View sell opportunities'}
+          <Text style={styles.sectionLabel}>INSIGHTS</Text>
+          <GroupedSection>
+            <GroupedRow
+              icon={<TrendingUp size={17} color="#FFFFFF" />}
+              iconBg="#FF9500"
+              title="Sell what's in demand"
+              subtitle={`${highDemandSellOpportunities.length} high demand items`}
               onPress={() => router.push('/sell-opportunities' as any)}
-              variant="outline"
-              size="medium"
-              icon={<ArrowRight size={16} color={themeColors.primary} />}
             />
-          </Card>
-
-          <Card style={styles.planCard} padding="medium" variant="flat">
-            <View style={styles.planHeader}>
-              <View style={styles.planIcon}>
-                <CalendarClock size={24} color={palette.secondary} />
-              </View>
-              <View style={styles.planText}>
-                <Text style={styles.planTitle}>Plan your outfit</Text>
-                <Text style={styles.planSubtitle}>
-                  {closetItems.length > 0
-                    ? `Use your ${closetItems.length} closet items`
-                    : 'Add items to your closet first'}
-                </Text>
-              </View>
-            </View>
-            <Button
-              title="Plan Outfit"
-              onPress={handlePlanOutfit}
-              variant="secondary"
-              size="medium"
-              icon={<Sparkles size={18} color="#FFFFFF" />}
-              disabled={closetItems.length < 2}
-            />
-          </Card>
-
-          <Card style={styles.cleanupCard} padding="medium" variant="elevated">
-            <View style={styles.planHeader}>
-              <View style={styles.cleanupIcon}>
-                <HeartHandshake size={22} color={palette.accentDark} />
-              </View>
-              <View style={styles.planText}>
-                <Text style={styles.planTitle}>Give your clothes a second life</Text>
-                <Text style={styles.planSubtitle}>
-                  Sell or donate what you no longer wear
-                </Text>
-              </View>
-            </View>
-            <Button
-              title={cleanupCandidates.length > 0 ? `Review ${cleanupCandidates.length} item${cleanupCandidates.length > 1 ? 's' : ''}` : 'Open Closet Cleanup'}
-              onPress={() => router.push('/closet-cleanup' as any)}
-              variant="secondary"
-              size="medium"
-              icon={<ArrowRight size={18} color="#FFFFFF" />}
-            />
-          </Card>
-
-          <Card style={styles.quickInsightCard} padding="medium" variant="outlined">
-            <View style={styles.planHeader}>
-              <View style={styles.quickInsightIcon}>
-                <Sparkles size={20} color={palette.accentDark} />
-              </View>
-              <View style={styles.planText}>
-                <Text style={styles.planTitle}>Discover your fashion identity</Text>
-                <Text style={styles.planSubtitle}>{stylePersonalityInsights.personality}</Text>
-              </View>
-            </View>
-            <Button
-              title="Open Style Personality"
+            <View style={styles.rowSeparator} />
+            <GroupedRow
+              icon={<Sparkles size={17} color="#FFFFFF" />}
+              iconBg="#AF52DE"
+              title="Style personality"
+              subtitle={stylePersonalityInsights.personality}
               onPress={() => router.push('/style-personality' as any)}
-              variant="outline"
-              size="medium"
-              icon={<ArrowRight size={16} color={themeColors.primary} />}
             />
-          </Card>
-
-          <Card style={styles.quickInsightCard} padding="medium" variant="outlined">
-            <View style={styles.planHeader}>
-              <View style={styles.quickInsightIcon}>
-                <Wallet size={20} color={palette.secondary} />
-              </View>
-              <View style={styles.planText}>
-                <Text style={styles.planTitle}>How much is your closet worth?</Text>
-                <Text style={styles.planSubtitle}>Estimated value ${closetValueInsights.totalClosetValue.toLocaleString()}</Text>
-              </View>
-            </View>
-            <Button
-              title="Open Closet Value"
+            <View style={styles.rowSeparator} />
+            <GroupedRow
+              icon={<Wallet size={17} color="#FFFFFF" />}
+              iconBg="#007AFF"
+              title="Closet value"
+              subtitle={`Estimated $${closetValueInsights.totalClosetValue.toLocaleString()}`}
               onPress={() => router.push('/closet-value' as any)}
-              variant="outline"
-              size="medium"
-              icon={<ArrowRight size={16} color={themeColors.primary} />}
             />
-          </Card>
+          </GroupedSection>
 
-          <Card style={styles.progressCard} padding="medium" variant="outlined">
-            <View style={styles.progressHeader}>
-              <View>
-                <Text style={styles.progressLabel}>Progress</Text>
-                <Text style={styles.progressLevel}>Style Level {gamificationState.level}</Text>
+          <Text style={styles.sectionLabel}>PROGRESS</Text>
+          <GroupedSection>
+            <View style={styles.progressCard}>
+              <View style={styles.progressTop}>
+                <View>
+                  <Text style={styles.progressLabel}>Style Level {gamificationState.level}</Text>
+                  <Text style={styles.progressXp}>
+                    {xpProgress.current} / {xpProgress.needed} XP
+                  </Text>
+                </View>
+                <View style={styles.streakPill}>
+                  <Animated.View style={{ transform: [{ scale: streakScale }] }}>
+                    <Flame size={14} color="#FF9500" />
+                  </Animated.View>
+                  <Text style={styles.streakText}>{currentStreak} day</Text>
+                </View>
               </View>
-              <View style={styles.streakPill}>
-                <Animated.View style={{ transform: [{ scale: streakScale }] }}>
-                  <Flame size={14} color={palette.secondary} />
-                </Animated.View>
-                <Text style={styles.streakText}>
-                  {gamificationState.streak.current}-day streak
-                </Text>
+              <View style={styles.xpTrack}>
+                <View
+                  style={[
+                    styles.xpFill,
+                    {
+                      width: `${Math.max(4, xpProgress.pct * 100)}%`,
+                      backgroundColor: themeColors.primary,
+                    },
+                  ]}
+                />
               </View>
+              <TouchableOpacity
+                style={styles.progressCta}
+                onPress={handleViewProgress}
+                activeOpacity={0.6}
+              >
+                <Text style={[styles.progressCtaText, { color: themeColors.primary }]}>View Progress</Text>
+                <ArrowRight size={15} color={themeColors.primary} />
+              </TouchableOpacity>
             </View>
+          </GroupedSection>
 
-            <View style={styles.xpTrack}>
-              <View style={[styles.xpFill, { width: `${Math.max(4, xpProgress.pct * 100)}%` }]} />
-            </View>
-            <Text style={styles.xpMeta}>
-              {xpProgress.current} / {xpProgress.needed} XP
-            </Text>
-
-            <TouchableOpacity style={styles.progressCta} onPress={handleViewProgress} activeOpacity={0.8}>
-              <Text style={styles.progressCtaText}>View Progress</Text>
-              <ArrowRight size={16} color={palette.inkLight} />
+          <Text style={styles.sectionLabel}>SETTINGS</Text>
+          <GroupedSection style={{ marginBottom: 40 }}>
+            <TouchableOpacity style={styles.settingRow} activeOpacity={0.6}>
+              <Text style={styles.settingLabel}>Occasion</Text>
+              <View style={styles.settingValueRow}>
+                <Text style={styles.settingValue}>{selectedOccasion}</Text>
+                <ChevronRight size={15} color={palette.inkFaint} />
+              </View>
             </TouchableOpacity>
-          </Card>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Quick Settings</Text>
-
-            <TouchableOpacity
-              style={styles.dropdown}
-              onPress={() => setShowOccasions(!showOccasions)}
-              activeOpacity={0.8}
-            >
-              <View>
-                <Text style={styles.dropdownLabel}>Occasion</Text>
-                <Text style={styles.dropdownValue}>{selectedOccasion}</Text>
+            <View style={styles.rowSeparator} />
+            <TouchableOpacity style={styles.settingRow} activeOpacity={0.6}>
+              <Text style={styles.settingLabel}>Style Vibe</Text>
+              <View style={styles.settingValueRow}>
+                <Text style={styles.settingValue}>{selectedVibe}</Text>
+                <ChevronRight size={15} color={palette.inkFaint} />
               </View>
-              <ChevronDown
-                size={20}
-                color={palette.inkMuted}
-                style={{ transform: [{ rotate: showOccasions ? '180deg' : '0deg' }] }}
-              />
             </TouchableOpacity>
-            {showOccasions && (
-              <View style={styles.chipGrid}>
-                {OCCASIONS.map((occ) => (
-                  <Chip
-                    key={occ}
-                    label={occ}
-                    selected={selectedOccasion === occ}
-                    onPress={() => {
-                      setSelectedOccasion(occ);
-                      setShowOccasions(false);
-                    }}
-                    size="small"
-                  />
-                ))}
-              </View>
-            )}
-
-            <TouchableOpacity
-              style={styles.dropdown}
-              onPress={() => setShowVibes(!showVibes)}
-              activeOpacity={0.8}
-            >
-              <View>
-                <Text style={styles.dropdownLabel}>Style Vibe</Text>
-                <Text style={styles.dropdownValue}>{selectedVibe}</Text>
-              </View>
-              <ChevronDown
-                size={20}
-                color={palette.inkMuted}
-                style={{ transform: [{ rotate: showVibes ? '180deg' : '0deg' }] }}
-              />
-            </TouchableOpacity>
-            {showVibes && (
-              <View style={styles.chipGrid}>
-                {styleVibes.map((vibe) => (
-                  <Chip
-                    key={vibe}
-                    label={vibe}
-                    selected={selectedVibe === vibe}
-                    onPress={() => {
-                      setSelectedVibe(vibe);
-                      setShowVibes(false);
-                    }}
-                    size="small"
-                  />
-                ))}
-              </View>
-            )}
-          </View>
-
-          <Card style={styles.tipCard} padding="medium" variant="flat">
-            <Text style={styles.tipTitle}>💡 Pro tip</Text>
-            <Text style={styles.tipText}>
-              Stand back so your full outfit fits in frame. Good lighting helps get better
-              suggestions!
-            </Text>
-          </Card>
+          </GroupedSection>
         </ScrollView>
       </SafeAreaView>
     </View>
@@ -471,7 +370,7 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: palette.warmWhite,
+    backgroundColor: palette.systemGroupedBg,
   },
   safeArea: {
     flex: 1,
@@ -480,265 +379,204 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: space.screen,
-    paddingTop: space.sm,
-    paddingBottom: space.xl,
+    paddingBottom: space.xxl,
   },
   weatherBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: radius.pill,
-    backgroundColor: palette.white,
-    gap: space.xs,
-    ...shadow.soft,
+    backgroundColor: palette.secondarySystemGroupedBg,
+    gap: 4,
   },
   weatherEmoji: {
-    fontSize: 18,
+    fontSize: 16,
   },
   weatherTemp: {
-    ...typo.bodyMedium,
+    ...typo.caption,
+    fontWeight: '600' as const,
     color: palette.ink,
   },
-  mainCard: {
-    marginBottom: space.xl,
+  sectionLabel: {
+    ...typo.footnote,
+    color: palette.inkMuted,
+    marginLeft: space.screen + 16,
+    marginBottom: 6,
+    marginTop: 24,
+    letterSpacing: 0.5,
+  },
+  groupedSection: {
+    marginHorizontal: space.screen,
+    backgroundColor: palette.secondarySystemGroupedBg,
+    borderRadius: radius.card,
+    overflow: 'hidden',
+  },
+  groupedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  groupedRowIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  groupedRowContent: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
   },
-  iconBlock: {
-    marginBottom: space.lg,
+  groupedRowText: {
+    flex: 1,
   },
-  mainIcon: {
-    width: 72,
-    height: 72,
-    borderRadius: radius.lg,
+  groupedRowTitle: {
+    ...typo.bodyMedium,
+    color: palette.ink,
+    fontSize: 16,
+  },
+  groupedRowSubtitle: {
+    ...typo.caption,
+    color: palette.inkMuted,
+    marginTop: 1,
+  },
+  rowSeparator: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: palette.separator,
+    marginLeft: 62,
+  },
+  heroCard: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  heroIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: palette.accentLight,
+    marginBottom: 16,
   },
-  cardTitle: {
+  heroTitle: {
     ...typo.sectionHeader,
     color: palette.ink,
-    marginBottom: space.sm,
+    marginBottom: 6,
     textAlign: 'center',
   },
-  cardDesc: {
+  heroDesc: {
     ...typo.body,
     color: palette.inkMuted,
     textAlign: 'center',
-    marginBottom: space.lg,
-    paddingHorizontal: space.sm,
+    marginBottom: 20,
+    fontSize: 15,
+    lineHeight: 20,
   },
-  buttons: {
+  heroButtons: {
+    flexDirection: 'row',
     width: '100%',
+    gap: 10,
   },
-  primaryBtn: {
-    marginBottom: space.sm,
-  },
-  planCard: {
-    marginBottom: space.xl,
-    backgroundColor: palette.secondaryLight,
-    borderWidth: 0,
-  },
-  cleanupCard: {
-    marginBottom: space.xl,
-    backgroundColor: palette.white,
-  },
-  importCard: {
-    marginBottom: space.xl,
-    backgroundColor: palette.white,
-  },
-  importIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.md,
+  heroBtn: {
+    flex: 1,
+    height: 50,
+    borderRadius: radius.button,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: space.md,
-    backgroundColor: palette.accentLight,
+    gap: 8,
   },
-  importSources: {
-    ...typo.small,
-    color: palette.inkMuted,
-    marginBottom: space.md,
+  heroBtnOutline: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: palette.separator,
   },
-  cleanupIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: space.md,
-    backgroundColor: palette.accentLight,
-  },
-  demandCard: {
-    marginBottom: space.xl,
-    borderColor: palette.secondary + '40',
-  },
-  demandIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: space.md,
-    backgroundColor: palette.secondaryLight,
-  },
-  demandMeta: {
-    ...typo.caption,
-    color: palette.inkMuted,
-    marginBottom: space.md,
-  },
-  quickInsightCard: {
-    marginBottom: space.xl,
-    borderColor: palette.borderLight,
-  },
-  quickInsightIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: space.md,
-    backgroundColor: palette.warmWhiteDark,
+  heroBtnText: {
+    ...typo.button,
+    color: '#FFFFFF',
+    fontSize: 16,
   },
   progressCard: {
-    marginBottom: space.xl,
-    backgroundColor: palette.white,
-    borderColor: palette.border,
+    padding: 16,
   },
-  progressHeader: {
+  progressTop: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: space.md,
+    marginBottom: 12,
   },
   progressLabel: {
-    ...typo.small,
-    color: palette.inkMuted,
-    marginBottom: 2,
-  },
-  progressLevel: {
-    ...typo.sectionHeader,
+    ...typo.headline,
     color: palette.ink,
+  },
+  progressXp: {
+    ...typo.caption,
+    color: palette.inkMuted,
+    marginTop: 2,
   },
   streakPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 5,
     borderRadius: radius.pill,
-    backgroundColor: palette.secondaryLight,
+    backgroundColor: '#FFF4E6',
   },
   streakText: {
     ...typo.caption,
-    color: palette.inkLight,
+    fontWeight: '600' as const,
+    color: '#CC7700',
   },
   xpTrack: {
-    height: 8,
+    height: 6,
     borderRadius: radius.pill,
-    backgroundColor: palette.borderLight,
+    backgroundColor: 'rgba(118, 118, 128, 0.12)',
     overflow: 'hidden',
-    marginBottom: space.xs,
+    marginBottom: 4,
   },
   xpFill: {
     height: '100%',
-    backgroundColor: palette.accent,
     borderRadius: radius.pill,
-  },
-  xpMeta: {
-    ...typo.small,
-    color: palette.inkMuted,
-    marginBottom: space.md,
   },
   progressCta: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: space.sm,
-    borderTopWidth: 1,
-    borderTopColor: palette.borderLight,
+    justifyContent: 'center',
+    paddingTop: 14,
+    marginTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: palette.separator,
+    gap: 4,
   },
   progressCtaText: {
     ...typo.bodyMedium,
-    color: palette.ink,
+    fontSize: 15,
   },
-  planHeader: {
+  settingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: space.md,
-  },
-  planIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: space.md,
-    backgroundColor: palette.secondary + '25',
-  },
-  planText: {
-    flex: 1,
-  },
-  planTitle: {
-    ...typo.sectionHeader,
-    color: palette.ink,
-    marginBottom: 2,
-  },
-  planSubtitle: {
-    ...typo.caption,
-    color: palette.inkMuted,
-  },
-  section: {
-    marginBottom: space.xl,
-  },
-  sectionTitle: {
-    ...typo.sectionHeader,
-    color: palette.ink,
-    marginBottom: space.md,
-  },
-  dropdown: {
-    flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: space.lg,
-    borderRadius: radius.lg,
-    marginBottom: space.sm,
-    backgroundColor: palette.white,
-    ...shadow.soft,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
   },
-  dropdownLabel: {
-    ...typo.small,
-    color: palette.inkMuted,
-    marginBottom: 2,
-  },
-  dropdownValue: {
-    ...typo.bodyMedium,
+  settingLabel: {
+    ...typo.body,
     color: palette.ink,
+    fontSize: 16,
   },
-  chipGrid: {
+  settingValueRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space.sm,
-    marginBottom: space.md,
-    padding: space.md,
-    borderRadius: radius.lg,
-    backgroundColor: palette.warmWhiteDark,
+    alignItems: 'center',
+    gap: 4,
   },
-  tipCard: {
-    backgroundColor: palette.accentLight,
-    borderWidth: 0,
-  },
-  tipTitle: {
-    ...typo.caption,
-    fontWeight: '600',
-    color: palette.ink,
-    marginBottom: space.xs,
-  },
-  tipText: {
-    ...typo.small,
-    lineHeight: 18,
+  settingValue: {
+    ...typo.body,
     color: palette.inkMuted,
+    fontSize: 16,
   },
 });
