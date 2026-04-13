@@ -313,6 +313,65 @@ export default function ClosetScreen() {
     })();
   }, [addClosetItem, removeClosetItem]);
 
+  const handleTakePhoto = useCallback(async () => {
+    setShowAddSheet(false);
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      console.log('[Closet] Camera permission denied');
+      return;
+    }
+    const pickerResult = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.9,
+    });
+    if (pickerResult.canceled || !pickerResult.assets[0]) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const imageUri = pickerResult.assets[0].uri;
+    const stagingId = `closet_scan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const stagingItem: ClosetItem = {
+      id: stagingId,
+      imageUri,
+      category: 'T-shirt',
+      color: 'Unknown',
+      styleTags: [],
+      createdAt: new Date().toISOString(),
+      source: 'manual',
+      position: {
+        x: Math.random() * 220 + 16,
+        y: Math.random() * 300,
+        rotation: (Math.random() - 0.5) * 16,
+        scale: 0.85 + Math.random() * 0.25,
+      },
+      usageCount: 0,
+      outlineEnabled: true,
+      isProcessing: true,
+      processingStatus: 'queued',
+      processingStep: 'adding',
+    };
+    addClosetItem(stagingItem);
+    void (async () => {
+      try {
+        const pipelineResult = await addImageToClosetPipeline({
+          source: 'closet_upload',
+          imageUri,
+          addClosetItem,
+          onProgress: ({ message }) => {
+            console.log('[Closet] pipeline progress:', message);
+          },
+        });
+        removeClosetItem(stagingId);
+        if (pipelineResult.addedCount === 0) {
+          console.log('[Closet] No items added from camera');
+        } else {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+      } catch (error) {
+        console.log('[Closet] camera pipeline failed:', error);
+        removeClosetItem(stagingId);
+      }
+    })();
+  }, [addClosetItem, removeClosetItem]);
+
   const lifecycleFilteredItems = useMemo(() => {
     if (selectedLifecycle === 'Listed') return closetItems.filter((item) => item.status === 'listed_for_sale');
     if (selectedLifecycle === 'Donated') return closetItems.filter((item) => item.status === 'donated');
@@ -686,7 +745,7 @@ export default function ClosetScreen() {
         <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setShowAddSheet(false)}>
           <View style={styles.sheet}>
             <Text style={styles.sheetTitle}>Add to Closet</Text>
-            <TouchableOpacity style={styles.sheetOption} onPress={() => { setShowAddSheet(false); router.push('/add-clothing' as never); }}>
+            <TouchableOpacity style={styles.sheetOption} onPress={handleTakePhoto}>
               <Text style={styles.sheetOptionText}>Take photo</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.sheetOption} onPress={handleUploadFromGallery}>
