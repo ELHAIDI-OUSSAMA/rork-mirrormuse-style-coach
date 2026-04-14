@@ -22,6 +22,14 @@ if (Platform.OS === 'web') {
     }
     originalConsoleError(...args);
   };
+  const originalConsoleWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    const message = typeof args[0] === 'string' ? args[0] : '';
+    if (message.includes('non-boolean attribute') && message.includes('collapsable')) {
+      return;
+    }
+    originalConsoleWarn(...args);
+  };
 }
 
 const queryClient = new QueryClient();
