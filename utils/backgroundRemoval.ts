@@ -124,33 +124,39 @@ function buildBgRemovalPrompt(
   isGarmentOnly: boolean,
   options?: { itemDescription?: string; strictMode?: boolean; region?: string }
 ): string {
+  const realGarmentRule = ' CRITICAL: Preserve the EXACT garment from the source photo — keep its real texture, folds, wrinkles, colors, fabric weave, and proportions. Do NOT redraw, illustrate, or generate a cleaner/idealized version. The output must look like a photograph cutout, NOT a product render or digital illustration.';
+
   if (!isGarmentOnly) {
-    return "Isolate the clothing item in this image and place it on a solid #FF00FF background. Keep fabric details and realistic edges.";
+    return `Isolate the clothing item in this image and place it on a solid #FF00FF background. Keep fabric details and realistic edges.${realGarmentRule}`;
   }
 
-  const item = options?.itemDescription || "garment";
+  const item = options?.itemDescription || 'garment';
   const region = options?.region || '';
   const strict = options?.strictMode
-    ? " STRICT: If any person/body remains, remove it entirely. Keep ONLY the garment silhouette."
-    : "";
+    ? ' STRICT: If any person/body remains, remove it entirely. Keep ONLY the garment silhouette.'
+    : '';
 
-  if (region === 'upper_outer' || item.toLowerCase().includes('jacket') || item.toLowerCase().includes('coat') || item.toLowerCase().includes('blazer')) {
-    return `Extract ONLY the jacket/coat/outerwear from this image. Remove the person's body completely: no face, no hands, no arms, no torso skin, no inner shirt, no pants. Remove ALL background. Output ONLY the outerwear garment as a clean silhouette on a solid #FF00FF background.${strict}`;
+  if (region === 'upper_outer' || item.toLowerCase().includes('jacket') || item.toLowerCase().includes('coat') || item.toLowerCase().includes('blazer') || item.toLowerCase().includes('overshirt')) {
+    return `Extract ONLY the jacket/coat/outerwear from this image. Remove the person's body completely: no face, no hands, no arms, no torso skin, no inner shirt, no pants. Remove ALL background. Output ONLY the outerwear garment as a clean silhouette on a solid #FF00FF background.${realGarmentRule}${strict}`;
   }
 
-  if (region === 'upper_inner' || item.toLowerCase().includes('t-shirt') || item.toLowerCase().includes('shirt') || item.toLowerCase().includes('sweater')) {
-    return `Extract ONLY the shirt/t-shirt/inner top from this image. Remove the person's body completely: no face, no hands, no arms, no skin, no jacket/outerwear, no pants. Remove ALL background. Output ONLY the inner top garment as a clean silhouette on a solid #FF00FF background.${strict}`;
+  if (region === 'upper_inner' || item.toLowerCase().includes('t-shirt') || item.toLowerCase().includes('shirt') || item.toLowerCase().includes('sweater') || item.toLowerCase().includes('hoodie')) {
+    return `Extract ONLY the shirt/t-shirt/hoodie/inner top from this image. Remove the person's body completely: no face, no hands, no arms, no skin, no jacket/outerwear, no pants. Remove ALL background. Output ONLY the inner top garment as a clean silhouette on a solid #FF00FF background.${realGarmentRule}${strict}`;
   }
 
-  if (region === 'lower' || item.toLowerCase().includes('pants') || item.toLowerCase().includes('jeans') || item.toLowerCase().includes('trousers')) {
-    return `Extract ONLY the pants/trousers from this image. Remove the person's body completely: no torso, no shoes, no sneakers, no belt, no hands, no legs/skin. Remove ALL background and floor. Do NOT include any footwear — stop at the ankle hem. Output ONLY the pants as a clean silhouette on a solid #FF00FF background.${strict}`;
+  if (region === 'lower' || item.toLowerCase().includes('pants') || item.toLowerCase().includes('jeans') || item.toLowerCase().includes('trousers') || item.toLowerCase().includes('shorts') || item.toLowerCase().includes('skirt')) {
+    return `Extract ONLY the pants/trousers/bottoms from this image. Remove the person's body completely: no torso, no shoes, no sneakers, no belt, no hands, no legs/skin. Remove ALL background and floor. Do NOT include any footwear — stop at the ankle hem. Output ONLY the pants/bottoms as a clean silhouette on a solid #FF00FF background.${realGarmentRule}${strict}`;
   }
 
-  if (region === 'feet' || item.toLowerCase().includes('shoe') || item.toLowerCase().includes('sneaker') || item.toLowerCase().includes('boot')) {
-    return `Extract ONLY the shoes/sneakers/boots from this image. Remove the person's legs, floor, ground, and ALL background. Output ONLY the footwear as a clean silhouette on a solid #FF00FF background.${strict}`;
+  if (region === 'feet' || item.toLowerCase().includes('shoe') || item.toLowerCase().includes('sneaker') || item.toLowerCase().includes('boot') || item.toLowerCase().includes('loafer')) {
+    return `Extract ONLY the shoes/sneakers/boots from this image. Remove the person's legs, floor, ground, and ALL background. Output ONLY the footwear as a clean silhouette on a solid #FF00FF background.${realGarmentRule}${strict}`;
   }
 
-  return `Extract ONLY the ${item} from the image. Remove the person completely (no face, no hands, no legs, no body). Remove ALL background. Output a clean transparent PNG sticker of the ${item} only.${strict} Use a solid #FF00FF background in the generated image to support transparency post-processing.`;
+  if (region === 'accessory' || item.toLowerCase().includes('bag') || item.toLowerCase().includes('belt') || item.toLowerCase().includes('watch')) {
+    return `Extract ONLY the ${item} accessory from this image. Remove the person and ALL background. Output ONLY the accessory on a solid #FF00FF background.${realGarmentRule}${strict}`;
+  }
+
+  return `Extract ONLY the ${item} from the image. Remove the person completely (no face, no hands, no legs, no body). Remove ALL background. Output ONLY the ${item} on a solid #FF00FF background.${realGarmentRule}${strict}`;  
 }
 
 export async function removeBackground(

@@ -277,7 +277,7 @@ export default function ResultsScreen() {
         ? analysis.results.detectedClothingItems
         : [];
       const result = await addImageToClosetPipeline({
-        source: 'closet_upload',
+        source: 'outfit_check',
         imageUri: analysis.imageUri,
         addClosetItem,
         preDetectedItems,

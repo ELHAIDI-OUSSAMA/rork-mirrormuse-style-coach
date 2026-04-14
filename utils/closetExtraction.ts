@@ -295,6 +295,8 @@ function buildCropPrompt(
   options?: { tightMode?: boolean; strictItemOnly?: boolean }
 ): string {
   const bboxStr = `${safeBBox.x.toFixed(3)}, ${safeBBox.y.toFixed(3)}, ${safeBBox.w.toFixed(3)}, ${safeBBox.h.toFixed(3)}`;
+  const realGarmentRule = `\nCRITICAL: Extract the EXACT garment as it appears in the source photo. Preserve its real texture, folds, wrinkles, stitching, and proportions. Do NOT redesign, redraw, illustrate, or generate a cleaner version. The output must look like a photo cutout, NOT a product render or illustration.`;
+  const strict = options?.strictItemOnly ? '\nSTRICT MODE: crop extremely tight around the garment edges only.' : '';
 
   if (region === 'upper_outer') {
     return `Crop this outfit image to extract ONLY the outerwear (jacket/coat/blazer).
@@ -303,8 +305,7 @@ Bounding box (x,y,w,h): ${bboxStr}
 
 MUST INCLUDE: only the jacket/coat/blazer silhouette.
 MUST EXCLUDE: the person's face, hands, legs, pants, shoes, inner shirt/t-shirt, and ALL background.
-Do NOT return a torso crop or full upper-body crop. Return ONLY the outer garment.
-${options?.strictItemOnly ? 'STRICT MODE: crop extremely tight around the jacket edges only.' : ''}`;
+Do NOT return a torso crop or full upper-body crop. Return ONLY the outer garment.${realGarmentRule}${strict}`;
   }
 
   if (region === 'upper_inner') {
@@ -315,8 +316,7 @@ Bounding box (x,y,w,h): ${bboxStr}
 MUST INCLUDE: only the inner top garment silhouette.
 MUST EXCLUDE: jacket/outerwear over it, face, hands, belt, pants, and ALL background.
 If a jacket covers part of the shirt, crop only the visible shirt area.
-Do NOT return a torso crop. Return ONLY the inner garment.
-${options?.strictItemOnly ? 'STRICT MODE: crop extremely tight around the shirt/t-shirt edges only.' : ''}`;
+Do NOT return a torso crop. Return ONLY the inner garment.${realGarmentRule}${strict}`;
   }
 
   if (region === 'lower') {
@@ -327,8 +327,7 @@ Bounding box (x,y,w,h): ${bboxStr}
 MUST INCLUDE: only the pants/trousers from waistband to ankle hem.
 MUST EXCLUDE: shoes/sneakers/boots (these will be extracted separately), upper body garments, belt, hands, floor, and ALL background.
 Do NOT include the person's torso, jacket, or shirt in this crop.
-Do NOT include any footwear — cut off at the ankle line.
-${options?.strictItemOnly ? 'STRICT MODE: crop extremely tight around the pants edges only. Absolutely no shoes.' : ''}`;
+Do NOT include any footwear — cut off at the ankle line.${realGarmentRule}${strict}`;
   }
 
   if (region === 'feet') {
@@ -338,8 +337,17 @@ Bounding box (x,y,w,h): ${bboxStr}
 
 MUST INCLUDE: only the shoes/sneakers/boots.
 MUST EXCLUDE: legs above ankle, pants, floor/ground, and ALL background.
-Return a tight crop of ONLY the footwear.
-${options?.strictItemOnly ? 'STRICT MODE: crop extremely tight around the shoe edges only.' : ''}`;
+Return a tight crop of ONLY the footwear.${realGarmentRule}${strict}`;
+  }
+
+  if (region === 'accessory') {
+    return `Crop this outfit image to extract ONLY the accessory.
+Target item: ${itemDescription}
+Bounding box (x,y,w,h): ${bboxStr}
+
+MUST INCLUDE: only the ${itemDescription}.
+MUST EXCLUDE: person, clothing, and ALL background.
+Return a tight crop of ONLY the accessory.${realGarmentRule}${strict}`;
   }
 
   return `Crop this outfit image around the target garment only.
@@ -349,8 +357,7 @@ Bounding box (x,y,w,h): ${bboxStr}
 
 MUST INCLUDE: only the ${itemDescription} silhouette.
 MUST EXCLUDE: face, hands, body skin, legs, unrelated garments, and ALL background.
-Do NOT return a full outfit or large torso section.
-${options?.strictItemOnly ? 'STRICT MODE: include only the named target garment.' : ''}`;
+Do NOT return a full outfit or large torso section.${realGarmentRule}${strict}`;
 }
 
 async function cropItemRegionFromOutfit(

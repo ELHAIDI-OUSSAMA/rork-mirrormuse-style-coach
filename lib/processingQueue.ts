@@ -212,8 +212,8 @@ async function processOutfitItem(task: QueueTask) {
   let validationPassed = true;
   let validationReason = '';
 
-  if (isSynthetic) {
-    console.log(`[ExtractJob] ${itemId} SKIP validation (synthetic/fallback item)`);
+  if (isSynthetic || isFragileRegion) {
+    console.log(`[ExtractJob] ${itemId} SKIP strict validation (synthetic=${isSynthetic} fragile=${isFragileRegion})`);
   } else {
     const validation = await safeValidateGarment(bgResult.stickerUri, itemDescription);
     console.log(`[ExtractJob] ${itemId} garment validation: valid=${validation.valid} reason=${validation.reason || 'ok'}`);
@@ -222,56 +222,48 @@ async function processOutfitItem(task: QueueTask) {
       validationPassed = false;
       validationReason = validation.reason || 'Garment validation failed';
 
-      // For fragile regions (pants/shoes), accept the sticker anyway if BG removal succeeded
-      if (isFragileRegion) {
-        console.log(`[ExtractJob] ${itemId} ACCEPTING despite validation fail (fragile region: ${region})`);
-        validationPassed = true;
-      } else {
-        // Retry with tighter crop for upper-body items
-        console.log(`[ExtractJob] ${itemId} retrying with tighter crop: ${validationReason}`);
-        const tighterCrop = await withTimeout(
-          cropItemFromOutfit(outfitImageUri, itemDescription, region, bbox, {
-            tightMode: true,
-            strictItemOnly: true,
-          }),
-          STEP_TIMEOUT_MS,
-          'Tight crop retry'
-        );
-        if (tighterCrop.success && tighterCrop.croppedUri) {
-          cropResult = tighterCrop;
-          update(itemId, { imageUri: cropResult.croppedUri });
-          console.log(`[ExtractJob] ${itemId} tight crop OK`);
-        }
+      console.log(`[ExtractJob] ${itemId} retrying with tighter crop: ${validationReason}`);
+      const tighterCrop = await withTimeout(
+        cropItemFromOutfit(outfitImageUri, itemDescription, region, bbox, {
+          tightMode: true,
+          strictItemOnly: true,
+        }),
+        STEP_TIMEOUT_MS,
+        'Tight crop retry'
+      );
+      if (tighterCrop.success && tighterCrop.croppedUri) {
+        cropResult = tighterCrop;
+        update(itemId, { imageUri: cropResult.croppedUri });
+        console.log(`[ExtractJob] ${itemId} tight crop OK`);
+      }
 
-        update(itemId, { processingStep: 'creating_sticker' });
-        const retryBg = await withTimeout(
-          removeBackgroundWithRetry(cropResult.croppedUri!, undefined, true, {
-            itemDescription,
-            strictMode: true,
-            region,
-          }),
-          STEP_TIMEOUT_MS,
-          'Strict BG removal retry'
-        );
+      update(itemId, { processingStep: 'creating_sticker' });
+      const retryBg = await withTimeout(
+        removeBackgroundWithRetry(cropResult.croppedUri!, undefined, true, {
+          itemDescription,
+          strictMode: true,
+          region,
+        }),
+        STEP_TIMEOUT_MS,
+        'Strict BG removal retry'
+      );
 
-        if (retryBg.success && retryBg.stickerUri) {
-          const retryValidation = await safeValidateGarment(retryBg.stickerUri, itemDescription);
-          console.log(`[ExtractJob] ${itemId} retry validation: valid=${retryValidation.valid} reason=${retryValidation.reason || 'ok'}`);
+      if (retryBg.success && retryBg.stickerUri) {
+        const retryValidation = await safeValidateGarment(retryBg.stickerUri, itemDescription);
+        console.log(`[ExtractJob] ${itemId} retry validation: valid=${retryValidation.valid} reason=${retryValidation.reason || 'ok'}`);
 
-          if (retryValidation.valid) {
-            finalSticker = retryBg.stickerUri;
-            validationPassed = true;
-          } else {
-            // Accept the BETTER of the two results rather than failing entirely
-            console.log(`[ExtractJob] ${itemId} retry validation also failed — accepting original sticker as best-effort`);
-            finalSticker = bgResult.stickerUri;
-            validationPassed = true;
-          }
+        if (retryValidation.valid) {
+          finalSticker = retryBg.stickerUri;
+          validationPassed = true;
         } else {
-          // Retry BG removal failed — accept original sticker
-          console.log(`[ExtractJob] ${itemId} retry BG removal failed — accepting original sticker`);
+          console.log(`[ExtractJob] ${itemId} retry validation also failed — accepting original sticker as best-effort`);
+          finalSticker = bgResult.stickerUri;
           validationPassed = true;
         }
+      } else {
+        console.log(`[ExtractJob] ${itemId} retry BG removal failed — accepting original sticker as best-effort`);
+        finalSticker = bgResult.stickerUri;
+        validationPassed = true;
       }
     }
   }

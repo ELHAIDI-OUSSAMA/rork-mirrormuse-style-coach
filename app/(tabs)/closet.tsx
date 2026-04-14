@@ -261,15 +261,7 @@ export default function ClosetScreen() {
   const actionSheetTranslateY = useRef(new Animated.Value(320)).current;
   const actionSheetBackdropOpacity = useRef(new Animated.Value(0)).current;
 
-  const handleUploadFromGallery = useCallback(async () => {
-    setShowAddSheet(false);
-    const pickerResult = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.9,
-    });
-    if (pickerResult.canceled || !pickerResult.assets[0]) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const imageUri = pickerResult.assets[0].uri;
+  const runPipelineForImage = useCallback(async (imageUri: string, source: 'closet_upload' | 'closet_camera') => {
     const stagingId = `closet_scan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const stagingItem: ClosetItem = {
       id: stagingId,
@@ -289,31 +281,57 @@ export default function ClosetScreen() {
       outlineEnabled: true,
       isProcessing: true,
       processingStatus: 'queued',
-      processingStep: 'adding',
+      processingStep: 'scanning',
     };
     addClosetItem(stagingItem);
+
     void (async () => {
       try {
         const pipelineResult = await addImageToClosetPipeline({
-          source: 'closet_upload',
+          source,
           imageUri,
           addClosetItem,
-          onProgress: ({ message }) => {
-            console.log('[Closet] pipeline progress:', message);
+          onProgress: ({ stage, message }) => {
+            console.log(`[Closet] pipeline progress (${stage}):`, message);
+            const stepMap: Record<string, ProcessingStep> = {
+              classifying: 'scanning',
+              preprocess: 'scanning',
+              detecting: 'scanning',
+              fallback_detecting: 'scanning',
+              creating_placeholders: 'creating_sticker',
+              saving: 'finalizing',
+              done: 'finalizing',
+            };
+            const step = stepMap[stage];
+            if (step) {
+              updateClosetItem(stagingId, { processingStep: step });
+            }
           },
         });
         removeClosetItem(stagingId);
         if (pipelineResult.addedCount === 0) {
-          console.log('[Closet] No items added from gallery upload');
+          console.log(`[Closet] No items added from ${source}`);
         } else {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          console.log(`[Closet] Added ${pipelineResult.addedCount} items from ${source}`);
         }
       } catch (error) {
-        console.log('[Closet] gallery pipeline failed:', error);
+        console.log(`[Closet] ${source} pipeline failed:`, error);
         removeClosetItem(stagingId);
       }
     })();
-  }, [addClosetItem, removeClosetItem]);
+  }, [addClosetItem, removeClosetItem, updateClosetItem]);
+
+  const handleUploadFromGallery = useCallback(async () => {
+    setShowAddSheet(false);
+    const pickerResult = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.9,
+    });
+    if (pickerResult.canceled || !pickerResult.assets[0]) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    runPipelineForImage(pickerResult.assets[0].uri, 'closet_upload');
+  }, [runPipelineForImage]);
 
   const handleTakePhoto = useCallback(async () => {
     setShowAddSheet(false);
@@ -328,51 +346,8 @@ export default function ClosetScreen() {
     });
     if (pickerResult.canceled || !pickerResult.assets[0]) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const imageUri = pickerResult.assets[0].uri;
-    const stagingId = `closet_scan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    const stagingItem: ClosetItem = {
-      id: stagingId,
-      imageUri,
-      category: 'T-shirt',
-      color: 'Unknown',
-      styleTags: [],
-      createdAt: new Date().toISOString(),
-      source: 'manual',
-      position: {
-        x: Math.random() * 220 + 16,
-        y: Math.random() * 300,
-        rotation: (Math.random() - 0.5) * 16,
-        scale: 0.85 + Math.random() * 0.25,
-      },
-      usageCount: 0,
-      outlineEnabled: true,
-      isProcessing: true,
-      processingStatus: 'queued',
-      processingStep: 'adding',
-    };
-    addClosetItem(stagingItem);
-    void (async () => {
-      try {
-        const pipelineResult = await addImageToClosetPipeline({
-          source: 'closet_upload',
-          imageUri,
-          addClosetItem,
-          onProgress: ({ message }) => {
-            console.log('[Closet] pipeline progress:', message);
-          },
-        });
-        removeClosetItem(stagingId);
-        if (pipelineResult.addedCount === 0) {
-          console.log('[Closet] No items added from camera');
-        } else {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        }
-      } catch (error) {
-        console.log('[Closet] camera pipeline failed:', error);
-        removeClosetItem(stagingId);
-      }
-    })();
-  }, [addClosetItem, removeClosetItem]);
+    runPipelineForImage(pickerResult.assets[0].uri, 'closet_camera');
+  }, [runPipelineForImage]);
 
   const lifecycleFilteredItems = useMemo(() => {
     if (selectedLifecycle === 'Listed') return closetItems.filter((item) => item.status === 'listed_for_sale');

@@ -63,6 +63,8 @@ const CATEGORY_MAP: Record<string, string> = {
   Pants: 'Pants',
   Jeans: 'Jeans',
   Shorts: 'Shorts',
+  Skirt: 'Skirt',
+  Dress: 'Dress',
   Sneakers: 'Sneakers',
   Loafers: 'Shoes',
   Boots: 'Boots',
@@ -70,6 +72,7 @@ const CATEGORY_MAP: Record<string, string> = {
   Belt: 'Belt',
   Bag: 'Bag',
   Watch: 'Watch',
+  Accessory: 'Accessory',
 };
 
 function generateRandomPosition() {
@@ -144,19 +147,14 @@ export async function addOutfitItemsToCloset(options: AddOutfitOptions) {
     }
 
     const bboxArea = item.bbox.w * item.bbox.h;
-    // More permissive for lower/feet — these are often filtered out incorrectly
-    const maxArea = item.region === 'lower' ? 0.45 : item.region === 'feet' ? 0.48 : 0.38;
+    const maxArea = item.region === 'lower' ? 0.50 : item.region === 'feet' ? 0.50 : item.region === 'upper_outer' ? 0.45 : 0.42;
     if (bboxArea > maxArea) {
-      console.log(`[ClosetPipeline] REJECT [${i}] ${item.subcategory} in ${item.region}: bbox area ${bboxArea.toFixed(3)} > ${maxArea}`);
-      skippedCount++;
-      continue;
+      console.log(`[ClosetPipeline] WARN [${i}] ${item.subcategory} in ${item.region}: bbox area ${bboxArea.toFixed(3)} > ${maxArea} — will attempt with capped bbox`);
     }
 
-    const maxHeight = item.region === 'lower' ? 0.52 : item.region === 'feet' ? 0.32 : 0.50;
+    const maxHeight = item.region === 'lower' ? 0.55 : item.region === 'feet' ? 0.35 : item.region === 'upper_outer' ? 0.52 : 0.50;
     if (item.bbox.h > maxHeight) {
-      console.log(`[ClosetPipeline] REJECT [${i}] ${item.subcategory} in ${item.region}: bbox height ${item.bbox.h.toFixed(3)} > ${maxHeight}`);
-      skippedCount++;
-      continue;
+      console.log(`[ClosetPipeline] WARN [${i}] ${item.subcategory} in ${item.region}: bbox height ${item.bbox.h.toFixed(3)} > ${maxHeight} — capping`);
     }
 
     console.log(`[ClosetPipeline] ACCEPT [${i}] ${item.subcategory} in ${item.region}: conf=${item.confidence.toFixed(2)}, bbox=[${item.bbox.x.toFixed(3)},${item.bbox.y.toFixed(3)},${item.bbox.w.toFixed(3)},${item.bbox.h.toFixed(3)}], area=${bboxArea.toFixed(3)}`);
@@ -375,14 +373,17 @@ export async function addImageToClosetPipeline(options: PipelineOptions): Promis
   console.log(`[ClosetPipeline] [${fingerprint}] coverage audit: retriedLower=${audited.retriedLower} retriedFeet=${audited.retriedFeet} final=${detectedItems.length}`);
 
   if (detectedItems.length < 1) {
-    console.log(`[ClosetPipeline] [${fingerprint}] FAIL: 0 items after all passes — NOT caching`);
+    console.log(`[ClosetPipeline] [${fingerprint}] 0 items after all passes — falling back to single-item extraction`);
+    onProgress?.({ stage: 'creating_placeholders', message: 'Creating sticker…' });
+    const single = await extractSingleItemSticker(imageUri, addClosetItem);
+    onProgress?.({ stage: 'done', message: 'Done' });
     return {
       classification,
       cleanedImageUri: detectionInputUri,
       detectedItems,
-      addedCount: 0,
-      duplicateCount: 0,
-      failedCount: 1,
+      addedCount: single.addedCount,
+      duplicateCount: single.duplicateCount,
+      failedCount: single.failedCount,
       hasFootwear: false,
     };
   }
